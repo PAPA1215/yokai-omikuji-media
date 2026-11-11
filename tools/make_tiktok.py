@@ -13,18 +13,23 @@ spec.json の例:
   "name": "猫又",
   "kana": "ねこまた",
   "hook": "長く生きた猫は、\n妖怪になる。",
-  "lore": "年を経た猫の尾が二つに分かれ、化けるようになったもの。",
-  "omen": "積み重ねてきたものが力になる日。",
+  "lore": "{年|とし}を{経|へ}た猫の尾が二つに分かれ、\n化けるようになった妖怪。",
+  "omen": "積み重ねてきたものが\n力になる日。",
   "act": "古い写真を見返す",
   "focus_y": 0.42,
   "audio": true
 }
+
+- ふりがなは {漢字|よみ} と書く(hook / lore / omen / act で使える)。
+- 改行は \n。1行は全角14字以内がめやす(入らなければ自動で折り返す)。
+- 妖怪の名前は tools/fonts の筆文字系フォントで描く(字がなければ明朝体に戻す)。
 
 出力(out フォルダ): slide1.jpg〜slide4.jpg, tiktok.mp4
 文字は TikTok の画面部品(上のタブ、右のボタン、下の説明文)に重ならない範囲に置く。
 """
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -36,6 +41,8 @@ TEXT_BOTTOM = 1500             # 文字の下端(下は説明文に隠れる)
 PAPER = (236, 230, 211)
 GOLD = (232, 194, 106)
 VERMILION = (207, 61, 48)
+HERE = os.path.dirname(os.path.abspath(__file__))
+NAME_FONT = os.path.join(HERE, "fonts", "ReggaeOne-Regular.ttf")
 FONT_DIRS = ["/usr/share/fonts/opentype/noto", "/usr/share/fonts/truetype/noto",
              "/usr/share/fonts/noto-cjk", "/System/Library/Fonts"]
 FONT_FILES = {
@@ -45,6 +52,7 @@ FONT_FILES = {
 }
 NO_LINE_START = set("、。，．・：；！？!?)）」』】〕》〉ー～…‥ゃゅょっぁぃぅぇぉャュョッァィゥェォ々")
 NO_LINE_END = set("(（「『【〔《〈")
+RUBY_RE = re.compile(r"\{([^|{}]+)\|([^|{}]+)\}")
 
 
 def font(weight, size):
@@ -63,32 +71,68 @@ def font(weight, size):
     sys.exit("日本語の明朝体フォント(Noto Serif CJK)が見つかりません。")
 
 
-def text_w(fnt, s, spacing=0):
-    if not s:
-        return 0
-    return fnt.getlength(s) + spacing * (len(s) - 1)
+def has_glyphs(fnt, s):
+    """フォントに字がそろっているか(ない字は豆腐の形になるので、それと比べる)。"""
+    try:
+        tofu = bytes(fnt.getmask("\U0010FFFF"))
+        return all(bytes(fnt.getmask(ch)) != tofu for ch in s if not ch.isspace())
+    except Exception:
+        return False
 
 
-def wrap(text, fnt, max_w, spacing=0):
-    """日本語の折り返し。明示的な改行を尊重し、行頭・行末の禁則を守る。"""
-    lines = []
+def name_font(size, s, path=None):
+    p = path or NAME_FONT
+    if os.path.exists(p):
+        f = ImageFont.truetype(p, size)
+        if has_glyphs(f, s):
+            return f
+    return font("black", size)
+
+
+def tokens(text):
+    """文字列を ("c", 字) と ("r", 親文字, よみ) の並びにする。改行ごとに分ける。"""
+    paras = []
     for para in str(text).split("\n"):
-        cur = ""
-        for ch in para:
-            if text_w(fnt, cur + ch, spacing) <= max_w:
-                cur += ch
+        out, pos = [], 0
+        for m in RUBY_RE.finditer(para):
+            out += [("c", ch) for ch in para[pos:m.start()]]
+            out.append(("r", m.group(1), m.group(2)))
+            pos = m.end()
+        out += [("c", ch) for ch in para[pos:]]
+        paras.append(out)
+    return paras
+
+
+def tok_w(tok, fnt, rfnt, sp):
+    if tok[0] == "c":
+        return fnt.getlength(tok[1]) + sp
+    base = sum(fnt.getlength(ch) + sp for ch in tok[1])
+    # ふりがなが親文字より長いときは、前後の字の上に半字分まではみ出してよい
+    return max(base, rfnt.getlength(tok[2]) + 6 - fnt.size * 0.5)
+
+
+def wrap(text, fnt, rfnt, max_w, sp=0):
+    """日本語の折り返し。明示的な改行を尊重し、行頭・行末の禁則を守る。ふりがなの組は割らない。"""
+    lines = []
+    for para in tokens(text):
+        cur, cur_w = [], 0.0
+        for tok in para:
+            w = tok_w(tok, fnt, rfnt, sp)
+            if cur_w + w <= max_w or not cur:
+                cur.append(tok); cur_w += w
                 continue
-            if ch in NO_LINE_START and cur:
-                cur += ch              # 句読点などは前の行にぶら下げる
+            if tok[0] == "c" and tok[1] in NO_LINE_START:
+                cur.append(tok); cur_w += w     # 句読点などは前の行にぶら下げる
                 continue
-            carry = ""
-            while cur and cur[-1] in NO_LINE_END:
-                carry = cur[-1] + carry
-                cur = cur[:-1]
+            carry = []
+            while cur and cur[-1][0] == "c" and cur[-1][1] in NO_LINE_END:
+                carry.insert(0, cur.pop())
             lines.append(cur)
-            cur = carry + ch
-        lines.append(cur)
-    return [ln for ln in lines if ln != ""] or [""]
+            cur = carry + [tok]
+            cur_w = sum(tok_w(t, fnt, rfnt, sp) for t in cur)
+        if cur:
+            lines.append(cur)
+    return lines or [[]]
 
 
 def cover(img, focus_y=0.42):
@@ -130,14 +174,11 @@ class Canvas:
     def put(self, xy, s, fnt, fill, spacing=0):
         x, y = xy
         ds, dt = ImageDraw.Draw(self.shadow), ImageDraw.Draw(self.text)
-        if spacing:
-            for ch in s:
-                ds.text((x, y + 4), ch, font=fnt, fill=(0, 0, 0, 230))
-                dt.text((x, y), ch, font=fnt, fill=fill + (255,))
-                x += fnt.getlength(ch) + spacing
-        else:
-            ds.text((x, y + 4), s, font=fnt, fill=(0, 0, 0, 230))
-            dt.text((x, y), s, font=fnt, fill=fill + (255,))
+        for ch in s:
+            ds.text((x, y + 4), ch, font=fnt, fill=(0, 0, 0, 230))
+            dt.text((x, y), ch, font=fnt, fill=fill + (255,))
+            x += fnt.getlength(ch) + spacing
+        return x
 
     def bar(self, x, y, w, h, fill):
         ImageDraw.Draw(self.text).rectangle((x, y, x + w, y + h), fill=fill + (255,))
@@ -153,49 +194,70 @@ def header(c, date_label):
         c.put((LEFT, 296), date_label, font("semi", 34), PAPER, spacing=2)
 
 
-def layout(items, bottom=TEXT_BOTTOM):
+def layout(items, spec, bottom=TEXT_BOTTOM):
     """items: (種類, 文字列) を下端そろえで積む。種類は label / body / big / name / kana / gap / bar。
-    戻り値は (行のリスト, ブロックの上端y)。"""
+    戻り値は (行のリスト, ブロックの上端y)。行は dict。"""
     styles = {
         "label": (font("bold", 44), GOLD, 1.55, 10),
-        "body": (font("semi", 58), PAPER, 1.5, 1),
-        "big": (font("black", 92), PAPER, 1.36, 2),
-        "name": (font("black", 230), PAPER, 1.1, 6),
+        "body": (font("semi", 58), PAPER, 1.78, 1),     # ふりがなの分、行間を広めに
+        "big": (font("black", 92), PAPER, 1.5, 2),
         "kana": (font("bold", 50), GOLD, 1.5, 14),
     }
     rows = []
     for kind, s in items:
-        if kind == "gap":
-            rows.append(("gap", int(s), None, None, 0))
+        if kind in ("gap", "bar"):
+            rows.append({"kind": kind, "h": int(s) if kind == "gap" else 60})
             continue
-        if kind == "bar":
-            rows.append(("bar", 56, None, None, 0))
+        if kind == "name":
+            size, sp = 240, 8
+            fnt = name_font(size, s, spec.get("name_font"))
+            while sum(fnt.getlength(ch) + sp for ch in s) > RIGHT - LEFT and size > 90:
+                size -= 10
+                fnt = name_font(size, s, spec.get("name_font"))
+            rows.append({"kind": kind, "h": int(size * 1.16), "toks": [("c", ch) for ch in s],
+                         "fnt": fnt, "rfnt": None, "fill": PAPER, "sp": sp, "ruby": False})
             continue
         fnt, fill, lh, sp = styles[kind]
-        size = fnt.size
-        if kind == "name":                       # 長い名前は入る大きさまで縮める
-            while text_w(fnt, s, sp) > RIGHT - LEFT and size > 90:
-                size -= 10
-                fnt = font("black", size)
-        for ln in wrap(s, fnt, RIGHT - LEFT, sp):
-            rows.append((ln, int(size * lh), fnt, fill, sp))
-    top = bottom - sum(r[1] for r in rows)
+        ruby_ok = kind in ("body", "big")
+        rfnt = font("bold", round(fnt.size * 0.5)) if ruby_ok else None
+        for ln in wrap(s, fnt, rfnt or fnt, RIGHT - LEFT, sp):
+            rows.append({"kind": kind, "h": int(fnt.size * lh), "toks": ln, "fnt": fnt,
+                         "rfnt": rfnt, "fill": fill, "sp": sp, "ruby": ruby_ok})
+    top = bottom - sum(r["h"] for r in rows)
     return rows, top
 
 
 def draw_rows(c, rows, top):
     y = top
-    for s, hgt, fnt, fill, sp in rows:
-        if s == "bar":
-            c.bar(LEFT + 6, y + 22, 120, 8, VERMILION)
-        elif s != "gap":
-            _, t, _, b = fnt.getbbox("国")       # 字の実際の上下位置
-            c.put((LEFT, y + (hgt - (b - t)) / 2 - t), s, fnt, fill, sp)
-        y += hgt
+    for r in rows:
+        if r["kind"] == "bar":
+            c.bar(LEFT + 6, y + 24, 120, 8, VERMILION)
+        elif r["kind"] != "gap":
+            fnt, sp = r["fnt"], r["sp"]
+            _, t, _, b = fnt.getbbox("国")           # 字の実際の上下位置
+            body_h = b - t
+            if r["ruby"]:                            # 字は行の下寄せ、上にふりがなの余白
+                gy = y + r["h"] - body_h - round(fnt.size * 0.14)
+            else:
+                gy = y + (r["h"] - body_h) / 2
+            x = LEFT
+            for tok in r["toks"]:
+                if tok[0] == "c":
+                    x = c.put((x, gy - t), tok[1], fnt, r["fill"], sp)
+                    continue
+                rf = r["rfnt"]
+                w = tok_w(tok, fnt, rf, sp)
+                base_w = sum(fnt.getlength(ch) + sp for ch in tok[1])
+                c.put((x + (w - base_w) / 2, gy - t), tok[1], fnt, r["fill"], sp)
+                _, rt, _, rb = rf.getbbox("あ")
+                rw = rf.getlength(tok[2])
+                c.put((x + (w - rw) / 2, gy - (rb - rt) - 8 - rt), tok[2], rf, GOLD, 0)
+                x += w
+        y += r["h"]
 
 
 def slide(spec, items):
-    rows, top = layout(items)
+    rows, top = layout(items, spec)
     c = Canvas(top)
     header(c, spec.get("date_label", ""))
     draw_rows(c, rows, top)
@@ -266,7 +328,8 @@ def main():
         ov_paths.append(p)
         Image.alpha_composite(bg.convert("RGBA"), ov).convert("RGB").save(
             os.path.join(spec["out"], f"slide{i}.jpg"), quality=90)
-    make_video(bg_path, ov_paths, os.path.join(spec["out"], "tiktok.mp4"), bool(spec.get("audio", True)))
+    if spec.get("video", True):
+        make_video(bg_path, ov_paths, os.path.join(spec["out"], "tiktok.mp4"), bool(spec.get("audio", True)))
     for p in [bg_path] + ov_paths:
         os.remove(p)
     print("ok:", spec["out"])
