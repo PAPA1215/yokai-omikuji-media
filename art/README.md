@@ -6,19 +6,22 @@
 - 形式は PNG か JPG
 - ファイル名は妖怪名のローマ字、小文字
 
-| 妖怪 | ファイル名 |
-| --- | --- |
-| 化け狐 | bakegitsune |
-| 河童 | kappa |
-| 天狗 | tengu |
-| 座敷童子 | zashikiwarashi |
-| 雪女 | yukionna |
-| 一反木綿 | ittanmomen |
-| アマビエ | amabie |
-| ぬらりひょん | nurarihyon |
-| 小豆洗い | azukiarai |
-| 唐傘お化け | karakasa |
-| 猫又 | nekomata |
+表の並びが、取り上げる順番です。
+
+| 順 | 妖怪 | ファイル名 |
+| --- | --- | --- |
+| 1 | 化け狐 | bakegitsune |
+| 2 | 海坊主 | umibozu |
+| 3 | 河童 | kappa |
+| 4 | 天狗 | tengu |
+| 5 | 座敷童子 | zashikiwarashi |
+| 6 | 雪女 | yukionna |
+| 7 | 一反木綿 | ittanmomen |
+| 8 | アマビエ | amabie |
+| 9 | ぬらりひょん | nurarihyon |
+| 10 | 小豆洗い | azukiarai |
+| 11 | 唐傘お化け | karakasa |
+| 12 | 猫又 | nekomata |
 
 ## 追加の絵（あると動画がよくなります）
 
