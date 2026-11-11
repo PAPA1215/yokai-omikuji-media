@@ -28,9 +28,11 @@ spec.json の例:
 - ふりがなは {漢字|よみ} と書く(hook / lore / omen / act で使える)。大人でも読みにくい語だけに付ける。
 - 改行は \n。1行は全角14字以内がめやす(長い行は字を少し小さくして収める)。
 - "motion": false で霧と光の粒の動きを止める。"audio": false で風の音を消す。"video": false で動画を作らない。
+- 英語版は "lang": "en" を足す。見出しが英語になり、単語の途中で折り返さない。"kana" にローマ字の名前、
+  "sub" に名前の下の一言(例: "the shapeshifting fox")を書ける。名前の筆文字は日本語のまま使う。
 
 出力(out フォルダ): slide1.jpg〜slide4.jpg, tiktok.mp4
-文字は TikTok の画面部品(上のタブ、右のボタン、下の説明文)に重ならない範囲に置く。
+文字は TikTok の画面部品(上の検索窓・タブ、右のボタン、下の説明文・通知)に重ならない範囲に置く。
 """
 import json
 import math
@@ -43,8 +45,9 @@ import sys
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 W, H = 1080, 1920
-LEFT, RIGHT = 90, 930          # 文字を置く左右の範囲(右はTikTokのボタンを避ける)
-TEXT_BOTTOM = 1500             # 文字の下端(下は説明文に隠れる)
+LEFT, RIGHT = 90, 900          # 文字を置く左右の範囲(右はTikTokのボタンを避ける)
+TEXT_BOTTOM = 1440             # 文字の下端(下は説明文・通知に隠れる)
+HEADER_Y = 284                 # 見出しの上端(上は検索窓・タブに隠れる)
 PAPER = (236, 230, 211)
 GOLD = (232, 194, 106)
 VERMILION = (207, 61, 48)
@@ -136,6 +139,16 @@ def wrap(text, fnt, rfnt, max_w, sp=0):
             if tok[0] == "c" and tok[1] in NO_LINE_START:
                 cur.append(tok); cur_w += w     # 句読点などは前の行にぶら下げる
                 continue
+            if tok[0] == "c" and tok[1] == " ":
+                lines.append(cur); cur, cur_w = [], 0.0   # 行末の空白は捨てる
+                continue
+            spaces = [i for i, t in enumerate(cur) if t[0] == "c" and t[1] == " "]
+            if tok[0] == "c" and tok[1].isascii() and spaces:     # 英単語の途中では切らず、直前の空白で折る
+                i = spaces[-1]
+                lines.append(cur[:i])
+                cur = cur[i + 1:] + [tok]
+                cur_w = sum(tok_w(t, fnt, rfnt, sp) for t in cur)
+                continue
             carry = []
             while cur and cur[-1][0] == "c" and cur[-1][1] in NO_LINE_END:
                 carry.insert(0, cur.pop())
@@ -203,8 +216,8 @@ def gradient_layer(text_top=1000):
     px = g.load()
     for y in range(H):
         a = 0.0
-        if y < 420:
-            a = max(a, 0.55 * (1 - y / 420))
+        if y < 520:
+            a = max(a, 0.6 * (1 - y / 520))
         if y > start:
             a = max(a, min(0.86, 0.86 * (y - start) / max(1, full - start)))
         px[0, y] = int(255 * a)
@@ -244,30 +257,45 @@ class Canvas:
         return Image.alpha_composite(out, self.text)
 
 
-def header(c, date_label):
-    c.put((LEFT, 232), "今日の守護妖怪", font("bold", 42), GOLD, spacing=8)
-    if date_label:
-        c.put((LEFT, 296), date_label, font("semi", 34), PAPER, spacing=2)
+LABELS = {
+    "ja": {"header": "今日の守護妖怪", "lore": "伝承", "omen": "お告げ", "act": "開運の所作"},
+    "en": {"header": "YOKAI OF THE DAY", "lore": "LORE", "omen": "TODAY'S OMEN", "act": "LUCKY ACT"},
+}
 
 
-def body_size(items):
-    """本文(body)が、書いた改行どおりに収まる一番大きい字の大きさを返す。"""
-    texts = [s for kind, s in items if kind == "body"]
-    for size in (58, 54, 50):
-        fnt, rfnt = font("semi", size), font("bold", round(size * 0.5))
-        if all(len(wrap(s, fnt, rfnt, RIGHT - LEFT, 1)) == len(str(s).split("\n")) for s in texts):
+def labels(spec):
+    return LABELS.get(spec.get("lang", "ja"), LABELS["ja"])
+
+
+def header(c, spec):
+    en = spec.get("lang") == "en"
+    c.put((LEFT, HEADER_Y), labels(spec)["header"], font("bold", 40 if en else 42), GOLD, spacing=6 if en else 8)
+    if spec.get("date_label"):
+        c.put((LEFT, HEADER_Y + 64), spec["date_label"], font("semi", 34), PAPER, spacing=2)
+
+
+def fit_size(items, kind, weight, sizes, sp):
+    """その種類の文が、書いた改行どおりに収まる一番大きい字の大きさを返す。"""
+    texts = [s for k, s in items if k == kind]
+    for size in sizes:
+        fnt, rfnt = font(weight, size), font("bold", round(size * 0.5))
+        if all(len(wrap(s, fnt, rfnt, RIGHT - LEFT, sp)) == len(str(s).split("\n")) for s in texts):
             return size
-    return 50
+    return sizes[-1]
 
 
 def layout(items, spec, bottom=TEXT_BOTTOM):
     """items: (種類, 中身) を下端そろえで積む。種類は label / body / big / name / kana / gap / bar。
     戻り値は (行のリスト, ブロックの上端y)。行は dict。"""
+    en = spec.get("lang") == "en"
     styles = {
-        "label": (font("bold", 44), GOLD, 1.55, 10),
-        "body": (font("semi", body_size(items)), PAPER, 1.78, 1),     # ふりがなの分、行間を広めに
-        "big": (font("black", 92), PAPER, 1.5, 2),
-        "kana": (font("bold", 50), GOLD, 1.5, 14),
+        "label": (font("bold", 40 if en else 44), GOLD, 1.55, 6 if en else 10),
+        # 日本語はふりがなの分、行間を広めに
+        "body": (font("semi", fit_size(items, "body", "semi", (52, 48, 44) if en else (58, 54, 50), 1)),
+                 PAPER, 1.5 if en else 1.78, 1),
+        "big": (font("black", fit_size(items, "big", "black", (92, 84, 76, 68, 60), 2)), PAPER, 1.4 if en else 1.5, 2),
+        "kana": (font("bold", 46 if en else 50), GOLD, 1.5, 10 if en else 14),
+        "sub": (font("semi", 44), PAPER, 1.5, 2),
     }
     rows = []
     for kind, s in items:
@@ -333,19 +361,23 @@ def draw_rows(c, rows, top):
 def slide(spec, items):
     rows, top = layout(items, spec)
     c = Canvas(top)
-    header(c, spec.get("date_label", ""))
+    header(c, spec)
     draw_rows(c, rows, top)
     return c.done()
 
 
 def overlays(spec):
-    name_items = ([("kana", spec["kana"])] if spec.get("kana") else []) + [("name", spec["name"]), ("bar", "")]
+    lb = labels(spec)
+    name_items = ([("kana", spec["kana"])] if spec.get("kana") else []) + [("name", spec["name"])]
+    if spec.get("sub"):
+        name_items.append(("sub", spec["sub"]))
+    name_items.append(("bar", ""))
     return [
         slide(spec, [("big", spec["hook"])]),
         slide(spec, name_items),
-        slide(spec, [("label", "伝承"), ("body", spec["lore"])]),
-        slide(spec, [("label", "お告げ"), ("body", spec["omen"]), ("gap", 40),
-                     ("label", "開運の所作"), ("body", spec["act"])]),
+        slide(spec, [("label", lb["lore"]), ("body", spec["lore"])]),
+        slide(spec, [("label", lb["omen"]), ("body", spec["omen"]), ("gap", 40),
+                     ("label", lb["act"]), ("body", spec["act"])]),
     ]
 
 
