@@ -7,28 +7,35 @@
 
 spec.json の例:
 {
-  "art": "art/nekomata.png",
-  "out": "out/2026-11-12",
-  "date_label": "11月12日（木）",
-  "name": "猫又",
-  "kana": "ねこまた",
-  "hook": "長く生きた猫は、\n妖怪になる。",
-  "lore": "{年|とし}を{経|へ}た猫の尾が二つに分かれ、\n化けるようになった妖怪。",
-  "omen": "積み重ねてきたものが\n力になる日。",
-  "act": "古い写真を見返す",
-  "focus_y": 0.42,
-  "audio": true
+  "art": "art/bakegitsune.png",
+  "out": "out/2026-11-13",
+  "date_label": "11月13日（金）",
+  "name": "化け狐",
+  "kana": "ばけぎつね",
+  "hook": "年を重ねた狐は、\n人を化かす。",
+  "lore": "長く生きた狐は尾が増え、\n人に化ける術を覚えるといいます。",
+  "omen": "いつもと違う自分が吉。",
+  "act": "油揚げを食べる"
 }
 
-- ふりがなは {漢字|よみ} と書く(hook / lore / omen / act で使える)。
-- 改行は \n。1行は全角14字以内がめやす(入らなければ自動で折り返す)。
-- 妖怪の名前は tools/fonts の筆文字系フォントで描く(字がなければ明朝体に戻す)。
+絵と名前の画像(art と同じフォルダに置けば自動で見つける。spec に art2 / art3 / title_image で指定もできる):
+- art/<名前>.png        主役の絵(必須)。縦長 9:16、文字なし
+- art/<名前>_2.png      2枚目の絵(任意)。途中の場面で切り替える
+- art/<名前>_3.png      3枚目の絵(任意)
+- art/<名前>_title.png  妖怪名の筆文字(任意)。真っ黒な背景に文字だけ。なければ明朝体で名前を書く
+
+書き方:
+- ふりがなは {漢字|よみ} と書く(hook / lore / omen / act で使える)。大人でも読みにくい語だけに付ける。
+- 改行は \n。1行は全角14字以内がめやす(長い行は字を少し小さくして収める)。
+- "motion": false で霧と光の粒の動きを止める。"audio": false で風の音を消す。"video": false で動画を作らない。
 
 出力(out フォルダ): slide1.jpg〜slide4.jpg, tiktok.mp4
 文字は TikTok の画面部品(上のタブ、右のボタン、下の説明文)に重ならない範囲に置く。
 """
 import json
+import math
 import os
+import random
 import re
 import subprocess
 import sys
@@ -41,8 +48,10 @@ TEXT_BOTTOM = 1500             # 文字の下端(下は説明文に隠れる)
 PAPER = (236, 230, 211)
 GOLD = (232, 194, 106)
 VERMILION = (207, 61, 48)
+DURS = [3.0, 3.0, 4.5, 5.0]    # 4場面の長さ(秒)
+FPS = 30
 HERE = os.path.dirname(os.path.abspath(__file__))
-NAME_FONT = os.path.join(HERE, "fonts", "ReggaeOne-Regular.ttf")
+NAME_FONT = os.path.join(HERE, "fonts", "name.ttf")
 FONT_DIRS = ["/usr/share/fonts/opentype/noto", "/usr/share/fonts/truetype/noto",
              "/usr/share/fonts/noto-cjk", "/System/Library/Fonts"]
 FONT_FILES = {
@@ -53,7 +62,10 @@ FONT_FILES = {
 NO_LINE_START = set("、。，．・：；！？!?)）」』】〕》〉ー～…‥ゃゅょっぁぃぅぇぉャュョッァィゥェォ々")
 NO_LINE_END = set("(（「『【〔《〈")
 RUBY_RE = re.compile(r"\{([^|{}]+)\|([^|{}]+)\}")
+IMG_EXT = (".png", ".jpg", ".jpeg", ".webp")
 
+
+# ---------- 文字 ----------
 
 def font(weight, size):
     for d in FONT_DIRS:
@@ -136,15 +148,13 @@ def wrap(text, fnt, rfnt, max_w, sp=0):
         if len(lines) >= 2 and len(para) > len(lines[-1]) and len(lines[-1]) <= 2:
             prev, last = lines[-2], lines[-1]
             while len(last) < 4 and len(prev) > 6:
-                if prev[-1][0] == "c" and prev[-1][1] in NO_LINE_START:
-                    last.insert(0, prev.pop())
-                    continue
                 last.insert(0, prev.pop())
-                if not (last[0][0] == "c" and last[0][1] in NO_LINE_START):
-                    if len(last) >= 4:
-                        break
+                if len(last) >= 4 and not (last[0][0] == "c" and last[0][1] in NO_LINE_START):
+                    break
     return lines or [[]]
 
+
+# ---------- 絵 ----------
 
 def cover(img, focus_y=0.42):
     """絵を 1080x1920 いっぱいに切り抜く。focus_y は上下どこを中心に残すか(0=上, 1=下)。"""
@@ -157,10 +167,38 @@ def cover(img, focus_y=0.42):
     return img.crop((x, y, x + W, y + H))
 
 
+def sibling(art_path, suffix):
+    """art/kappa.png に対して art/kappa_2.png や art/kappa_title.png を探す。"""
+    stem, _ = os.path.splitext(art_path)
+    for ext in IMG_EXT:
+        p = f"{stem}{suffix}{ext}"
+        if os.path.exists(p):
+            return p
+    return None
+
+
+def title_rgba(path):
+    """黒地に描かれた文字の画像を、黒を透明にした画像にして、文字の範囲だけ切り出す。"""
+    im = Image.open(path).convert("RGB")
+    r, g, b = im.split()
+    lum = Image.merge("RGB", (r, g, b)).convert("L")
+    mx = Image.eval(lum, lambda v: 0 if v < 26 else min(255, int((v - 26) * 255 / 150)))
+    box = mx.point(lambda v: 255 if v > 60 else 0).getbbox()
+    if not box:
+        return None
+    pad = 12
+    box = (max(0, box[0] - pad), max(0, box[1] - pad), min(im.width, box[2] + pad), min(im.height, box[3] + pad))
+    # 暗くなっている縁の色を持ち上げて、にごりを防ぐ
+    bright = Image.eval(im, lambda v: min(255, int(v * 1.12) + 6))
+    out = bright.convert("RGBA")
+    out.putalpha(mx)
+    return out.crop(box)
+
+
 def gradient_layer(text_top=1000):
     """上と下を暗くして文字を読みやすくする層。下の暗がりは文字ブロックの上端に合わせる。"""
-    start = max(480, text_top - 280)
-    full = text_top + 40
+    start = max(440, text_top - 330)
+    full = text_top - 10
     g = Image.new("L", (1, H), 0)
     px = g.load()
     for y in range(H):
@@ -191,6 +229,13 @@ class Canvas:
             x += fnt.getlength(ch) + spacing
         return x
 
+    def paste(self, im, xy):
+        x, y = int(xy[0]), int(xy[1])
+        sh = Image.new("RGBA", im.size, (0, 0, 0, 0))
+        sh.putalpha(im.getchannel("A").point(lambda v: int(v * 0.9)))
+        self.shadow.alpha_composite(sh, (x, y + 6))
+        self.text.alpha_composite(im, (x, y))
+
     def bar(self, x, y, w, h, fill):
         ImageDraw.Draw(self.text).rectangle((x, y, x + w, y + h), fill=fill + (255,))
 
@@ -216,7 +261,7 @@ def body_size(items):
 
 
 def layout(items, spec, bottom=TEXT_BOTTOM):
-    """items: (種類, 文字列) を下端そろえで積む。種類は label / body / big / name / kana / gap / bar。
+    """items: (種類, 中身) を下端そろえで積む。種類は label / body / big / name / kana / gap / bar。
     戻り値は (行のリスト, ブロックの上端y)。行は dict。"""
     styles = {
         "label": (font("bold", 44), GOLD, 1.55, 10),
@@ -230,6 +275,12 @@ def layout(items, spec, bottom=TEXT_BOTTOM):
             rows.append({"kind": kind, "h": int(s) if kind == "gap" else 60})
             continue
         if kind == "name":
+            timg = title_rgba(spec["_title"]) if spec.get("_title") else None
+            if timg is not None:                 # 筆文字の画像があれば、それを使う
+                k = min((RIGHT - LEFT) / timg.width, 330 / timg.height)
+                timg = timg.resize((max(1, round(timg.width * k)), max(1, round(timg.height * k))), Image.LANCZOS)
+                rows.append({"kind": "image", "h": timg.height + 16, "img": timg})
+                continue
             size, sp = 240, 8
             fnt = name_font(size, s, spec.get("name_font"))
             while sum(fnt.getlength(ch) + sp for ch in s) > RIGHT - LEFT and size > 90:
@@ -253,6 +304,8 @@ def draw_rows(c, rows, top):
     for r in rows:
         if r["kind"] == "bar":
             c.bar(LEFT + 6, y + 24, 120, 8, VERMILION)
+        elif r["kind"] == "image":
+            c.paste(r["img"], (LEFT - 8, y + 8))
         elif r["kind"] != "gap":
             fnt, sp = r["fnt"], r["sp"]
             _, t, _, b = fnt.getbbox("国")           # 字の実際の上下位置
@@ -296,39 +349,142 @@ def overlays(spec):
     ]
 
 
-def make_video(bg_path, ov_paths, out_path, audio=True):
-    durs = [3.0, 3.0, 4.5, 5.0]
+# ---------- 動画 ----------
+
+def scene_plan(n_arts):
+    """4場面それぞれに、どの絵(0始まり)を使うか。"""
+    return {1: [0, 0, 0, 0], 2: [0, 0, 1, 0], 3: [0, 0, 1, 2]}[min(3, n_arts)]
+
+
+def segments(plan):
+    """同じ絵が続く場面をまとめて (絵の番号, 開始秒, 長さ) にする。"""
+    segs, t = [], 0.0
+    for i, a in enumerate(plan):
+        if segs and segs[-1][0] == a:
+            segs[-1][2] += DURS[i]
+        else:
+            segs.append([a, t, DURS[i]])
+        t += DURS[i]
+    return segs
+
+
+def write_light_layer(path, total, seed):
+    """霧と光の粒が動く層(黒地)を、小さめの動画として書き出す。あとで絵に明るく重ねる。"""
+    import numpy as np
+    lw, lh = 540, 960
+    n = int(total * FPS)
+    rng = np.random.default_rng(seed)
+
+    def noise(w, h, cell):
+        a = rng.random((h // cell + 2, w // cell + 2)).astype(np.float32)
+        im = Image.fromarray((a * 255).astype(np.uint8)).resize((w, h), Image.BICUBIC)
+        return np.asarray(im).astype(np.float32) / 255
+
+    tw = lw + int(0.9 * n) + 8
+    far = np.clip((noise(tw, lh, 90) * 0.65 + noise(tw, lh, 34) * 0.35 - 0.42) * 2.2, 0, 1)
+    near = np.clip((noise(tw, lh, 150) * 0.7 + noise(tw, lh, 50) * 0.3 - 0.45) * 2.4, 0, 1)
+    yy = np.linspace(0, 1, lh, dtype=np.float32)[:, None]
+    band_far = np.clip((yy - 0.25) / 0.5, 0, 1) * 0.22          # 霧は画面の下ほど濃く
+    band_near = np.clip((yy - 0.42) / 0.45, 0, 1) * 0.30
+    mist_col = np.array([190, 222, 226], np.float32)
+
+    k = 19
+    ax = np.arange(k, dtype=np.float32) - k // 2
+    g = np.exp(-(ax[:, None] ** 2 + ax[None, :] ** 2) / (2 * 3.4 ** 2))
+    blob = g / g.max()
+    parts = []
+    for i in range(38):
+        warm = i % 2 == 0
+        parts.append(dict(
+            x=rng.uniform(20, lw - 20), y=rng.uniform(lh * 0.25, lh * 0.95), vy=rng.uniform(7, 20),
+            amp=rng.uniform(5, 14), per=rng.uniform(3, 6), ph=rng.uniform(0, 6.28),
+            t0=rng.uniform(-3, total - 2), life=rng.uniform(4, 8), size=rng.uniform(0.75, 1.5),
+            col=np.array([255, 224, 150] if warm else [170, 232, 255], np.float32)))
+
+    proc = subprocess.Popen(
+        ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{lw}x{lh}",
+         "-r", str(FPS), "-i", "pipe:0", "-c:v", "libx264", "-preset", "veryfast", "-crf", "16",
+         "-pix_fmt", "yuv420p", path], stdin=subprocess.PIPE)
+    for f in range(n):
+        t = f / FPS
+        o1, o2 = int(0.35 * f), int(0.9 * f)
+        m = far[:, o1:o1 + lw] * band_far + near[:, o2:o2 + lw] * band_near
+        frame = m[..., None] * mist_col
+        for p in parts:
+            age = t - p["t0"]
+            if age < 0 or age > p["life"]:
+                continue
+            fade = min(1.0, age / 1.2, (p["life"] - age) / 1.2)
+            tw_ = 0.75 + 0.25 * math.sin(t * 2.2 + p["ph"])
+            cx = int(p["x"] + p["amp"] * math.sin(2 * math.pi * age / p["per"] + p["ph"]))
+            cy = int(p["y"] - p["vy"] * age)
+            x0, y0 = cx - k // 2, cy - k // 2
+            if x0 < 0 or y0 < 0 or x0 + k > lw or y0 + k > lh:
+                continue
+            frame[y0:y0 + k, x0:x0 + k] += blob[..., None] * p["col"] * (fade * tw_ * p["size"])
+        proc.stdin.write(np.clip(frame, 0, 255).astype(np.uint8).tobytes())
+    proc.stdin.close()
+    if proc.wait() != 0:
+        raise RuntimeError("光の層の書き出しに失敗")
+
+
+def make_video(bg_paths, plan, ov_paths, out_path, audio=True, motion=True, seed=1, focus_y=0.42):
+    total = sum(DURS)
+    xf = 0.7                                   # 絵が切り替わるときの重なり(秒)
+    segs = segments(plan)
+    cmd = ["ffmpeg", "-y", "-loglevel", "error"]
+    f = []
+    # 背景: 絵ごとに、ゆっくり寄る/引く動きをつけ、切り替わりはなめらかにつなぐ
+    for i, (a, st, d) in enumerate(segs):
+        dur = d + (xf if i < len(segs) - 1 else 0)
+        nfr = int(math.ceil(dur * FPS))
+        cmd += ["-loop", "1", "-framerate", str(FPS), "-t", f"{dur:.3f}", "-i", bg_paths[a]]
+        z = f"1+0.07*on/{nfr}" if i % 2 == 0 else f"1.08-0.07*on/{nfr}"
+        f.append(f"[{i}:v]scale={W*2}:{H*2}:flags=lanczos,zoompan=z='{z}':x='iw/2-(iw/zoom/2)':"
+                 f"y='ih*{focus_y}-(ih/zoom*{focus_y})':d=1:s={W}x{H}:fps={FPS},format=yuv420p,setsar=1[s{i}]")
+    last = "s0"
+    for i in range(1, len(segs)):
+        f.append(f"[{last}][s{i}]xfade=transition=fade:duration={xf}:offset={segs[i][1] - 0.0:.3f}[x{i}]")
+        last = f"x{i}"
+    idx = len(segs)
+    if motion:
+        light = out_path + ".light.mp4"
+        write_light_layer(light, total, seed)
+        cmd += ["-i", light]
+        f.append(f"[{idx}:v]scale={W}:{H}:flags=bilinear,format=gbrp[lt]")
+        f.append(f"[{last}]format=gbrp[bgp]")
+        f.append("[bgp][lt]blend=all_mode=screen:shortest=1,format=yuv420p[lit]")
+        last = "lit"
+        idx += 1
+    # 文字: 場面ごとにふわっと出して消す
     fade = 0.4
-    total = sum(durs)
-    n = int(total * 30)
-    cmd = ["ffmpeg", "-y", "-loglevel", "error", "-loop", "1", "-framerate", "30", "-t", f"{total}", "-i", bg_path]
-    for p in ov_paths:
-        cmd += ["-loop", "1", "-framerate", "30", "-t", f"{total}", "-i", p]
-    if audio:
-        cmd += ["-f", "lavfi", "-t", f"{total}", "-i", "anoisesrc=color=brown:amplitude=0.9:seed=11:sample_rate=44100"]
-    f = [f"[0:v]scale={W*2}:{H*2}:flags=lanczos,zoompan=z='1+0.07*on/{n}':x='iw/2-(iw/zoom/2)':y='ih*0.42-(ih/zoom*0.42)':d=1:s={W}x{H}:fps=30[bg0]"]
     t = 0.0
-    last = "bg0"
-    for i, d in enumerate(durs, start=1):
+    for j, d in enumerate(DURS):
+        cmd += ["-loop", "1", "-framerate", str(FPS), "-t", f"{total}", "-i", ov_paths[j]]
         a, b = t, t + d
-        fx = f"[{i}:v]format=rgba,fade=t=in:st={a:.2f}:d={fade}:alpha=1"
-        if i < len(durs):
+        fx = f"[{idx}:v]format=rgba,fade=t=in:st={a:.2f}:d={fade}:alpha=1"
+        if j < len(DURS) - 1:
             fx += f",fade=t=out:st={b - fade:.2f}:d={fade}:alpha=1"
-        f.append(fx + f"[o{i}]")
-        f.append(f"[{last}][o{i}]overlay=0:0:enable='between(t,{a:.2f},{b:.2f})'[v{i}]")
-        last = f"v{i}"
+        f.append(fx + f"[o{j}]")
+        f.append(f"[{last}][o{j}]overlay=0:0:enable='between(t,{a:.2f},{b:.2f})'[v{j}]")
+        last = f"v{j}"
+        idx += 1
         t = b
     f.append(f"[{last}]format=yuv420p[vout]")
     maps = ["-map", "[vout]"]
     if audio:
-        ai = len(ov_paths) + 1
-        f.append(f"[{ai}:a]highpass=f=90,lowpass=f=420,tremolo=f=0.12:d=0.55,volume=0.5,"
+        cmd += ["-f", "lavfi", "-t", f"{total}", "-i", "anoisesrc=color=brown:amplitude=0.9:seed=11:sample_rate=44100"]
+        f.append(f"[{idx}:a]highpass=f=90,lowpass=f=420,tremolo=f=0.12:d=0.55,volume=0.5,"
                  f"afade=t=in:st=0:d=1.2,afade=t=out:st={total - 1.5:.2f}:d=1.5[aout]")
         maps += ["-map", "[aout]", "-c:a", "aac", "-b:a", "128k"]
     cmd += ["-filter_complex", ";".join(f)] + maps + [
-        "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-r", "30",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "21", "-r", str(FPS),
         "-t", f"{total}", "-movflags", "+faststart", out_path]
-    subprocess.run(cmd, check=True)
+    try:
+        subprocess.run(cmd, check=True)
+    finally:
+        if motion and os.path.exists(out_path + ".light.mp4"):
+            os.remove(out_path + ".light.mp4")
 
 
 def main():
@@ -339,21 +495,35 @@ def main():
         if not spec.get(k):
             sys.exit(f"spec に {k} がありません。")
     os.makedirs(spec["out"], exist_ok=True)
-    bg = cover(Image.open(spec["art"]), float(spec.get("focus_y", 0.42)))
-    bg_path = os.path.join(spec["out"], "_bg.jpg")
-    bg.save(bg_path, quality=95)
+    arts = [spec["art"]]
+    for key, suf in (("art2", "_2"), ("art3", "_3")):
+        p = spec.get(key) or sibling(spec["art"], suf)
+        if p and os.path.exists(p):
+            arts.append(p)
+    spec["_title"] = spec.get("title_image") or sibling(spec["art"], "_title")
+    fy = float(spec.get("focus_y", 0.42))
+    bgs, bg_paths = [], []
+    for i, p in enumerate(arts):
+        bg = cover(Image.open(p), fy)
+        bp = os.path.join(spec["out"], f"_bg{i}.jpg")
+        bg.save(bp, quality=95)
+        bgs.append(bg); bg_paths.append(bp)
+    plan = scene_plan(len(arts))
     ov_paths = []
     for i, ov in enumerate(overlays(spec), start=1):
         p = os.path.join(spec["out"], f"_ov{i}.png")
         ov.save(p)
         ov_paths.append(p)
-        Image.alpha_composite(bg.convert("RGBA"), ov).convert("RGB").save(
+        Image.alpha_composite(bgs[plan[i - 1]].convert("RGBA"), ov).convert("RGB").save(
             os.path.join(spec["out"], f"slide{i}.jpg"), quality=90)
     if spec.get("video", True):
-        make_video(bg_path, ov_paths, os.path.join(spec["out"], "tiktok.mp4"), bool(spec.get("audio", True)))
-    for p in [bg_path] + ov_paths:
+        seed = sum(ord(ch) for ch in str(spec.get("date_label", "")) + spec["name"])
+        make_video(bg_paths, plan, ov_paths, os.path.join(spec["out"], "tiktok.mp4"),
+                   audio=bool(spec.get("audio", True)), motion=bool(spec.get("motion", True)),
+                   seed=seed, focus_y=fy)
+    for p in bg_paths + ov_paths:
         os.remove(p)
-    print("ok:", spec["out"])
+    print("ok:", spec["out"], "| 絵", len(arts), "枚 | 名前の画像", "あり" if spec["_title"] else "なし")
 
 
 if __name__ == "__main__":
