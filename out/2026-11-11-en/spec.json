@@ -1,0 +1,15 @@
+{
+ "lang": "en",
+ "art": "art/bakegitsune.png",
+ "out": "out/2026-11-11-en",
+ "date_label": "November 11",
+ "name": "化け狐",
+ "kana": "BAKEGITSUNE",
+ "sub": "the shapeshifting fox",
+ "hook": "A fox that lives\nlong enough learns\nto fool humans.",
+ "lore": "In Japanese folklore, an old fox\ngrows extra tails and learns\nto take human form.\nPale blue lights on a night road\nare called kitsunebi, fox fire.",
+ "omen": "Try being a different you.\nA new route or a new jacket\ncan change who you meet.",
+ "act": "Eat fried tofu, said to be\na fox's favorite treat",
+ "focus_y": 0.42,
+ "audio": true
+}
