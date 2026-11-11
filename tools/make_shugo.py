@@ -20,6 +20,9 @@
 }
 - lines は 1〜12 の月ごとの一言。全角16字以内がめやす(長いと字が小さくなる)。
 - 出力は <out>/shugo_1.jpg と <out>/shugo_2.jpg。
+
+3. 英語版の表("lang": "en"。月の名前・ローマ字の妖怪名・英語の説明と一言になる)
+{"out": "out/shugo-en", "lang": "en"}
 """
 import json
 import os
@@ -35,6 +38,7 @@ CW, CH = 1600, 900
 BG = (8, 16, 24)
 CELL = (14, 26, 36)
 EDGE = (60, 80, 90)
+MONTHS_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 ROOT = os.path.dirname(HERE)
 
 
@@ -68,7 +72,7 @@ def thumb(row, w, h):
     return im.crop((0, y, w, y + h))
 
 
-def sheet(rows, out, title, sub, page, brand):
+def sheet(rows, out, title, sub, page, brand, en=False):
     img = Image.new("RGB", (CW, CH), BG)
     d = ImageDraw.Draw(img)
     f_t, f_s = font("black", 54), font("bold", 30)
@@ -87,6 +91,26 @@ def sheet(rows, out, title, sub, page, brand):
         img.paste(thumb(row, cw, th), (cx, cy))
         d.rectangle((cx, cy + th, cx + cw, cy + chh), fill=CELL)
         d.rectangle((cx, cy, cx + cw, cy + chh), outline=EDGE, width=2)
+        if en:                                   # 英語: 月・ローマ字の名前 / 短い説明 / 一言 の3段
+            ms = MONTHS_EN[row["month"] - 1]
+            fm = font("black", 34)
+            put(d, cx + 22, cy + th + 10, ms, fm, GOLD, 1)
+            nx = cx + 22 + tw(ms, fm, 1) + 16
+            size = 42
+            fn = font("black", size)
+            while tw(row["name_en"], fn, 1) > cx + cw - 22 - nx and size > 26:
+                size -= 2
+                fn = font("black", size)
+            put(d, nx, cy + th + 4 + (42 - size) * 0.6, row["name_en"], fn, PAPER, 1)
+            put(d, cx + 22, cy + th + 60, row.get("gloss_en", ""), font("bold", 23), GOLD, 1)
+            line = str(row.get("line", ""))
+            size = 24
+            fl = font("semi", size)
+            while tw(line, fl, 0) > cw - 44 and size > 18:
+                size -= 1
+                fl = font("semi", size)
+            put(d, cx + 22, cy + th + 90, line, fl, PAPER, 0)
+            continue
         ms = f"{row['month']}月"
         put(d, cx + 22, cy + th + 14, ms, f_m, GOLD, 2)
         put(d, cx + 22 + tw(ms, f_m, 2) + 18, cy + th + 10, row["name"], f_n, PAPER, 3)
@@ -110,6 +134,9 @@ def main():
     if not spec.get("out"):
         sys.exit("spec に out がありません。")
     rows = json.load(open(os.path.join(ROOT, "data", "shugo.json"), encoding="utf-8"))
+    en = spec.get("lang") == "en"
+    if en:
+        rows = [dict(r, line=r.get("line_en", "")) for r in rows]
     lines = spec.get("lines") or {}
     if lines:
         missing = [r["month"] for r in rows if not str(lines.get(str(r["month"]), "")).strip()]
@@ -117,12 +144,12 @@ def main():
             sys.exit(f"lines に {missing} 月の一言がありません。1〜12 をすべて書いてください。")
         rows = [dict(r, line=str(lines[str(r["month"])]).strip()) for r in rows]
     os.makedirs(spec["out"], exist_ok=True)
-    title = spec.get("title", "あなたの守護妖怪")
-    sub = spec.get("sub", "誕生月でわかります")
-    brand = spec.get("brand", "妖怪のお告げ")
+    title = spec.get("title", "Your guardian yokai" if en else "あなたの守護妖怪")
+    sub = spec.get("sub", "by birth month" if en else "誕生月でわかります")
+    brand = spec.get("brand", "Yokai Oracle" if en else "妖怪のお告げ")
     p1, p2 = os.path.join(spec["out"], "shugo_1.jpg"), os.path.join(spec["out"], "shugo_2.jpg")
-    sheet(rows[:6], p1, title, sub, "1月〜6月", brand)
-    sheet(rows[6:], p2, title, sub, "7月〜12月", brand)
+    sheet(rows[:6], p1, title, sub, "January – June" if en else "1月〜6月", brand, en)
+    sheet(rows[6:], p2, title, sub, "July – December" if en else "7月〜12月", brand, en)
     print("ok:", p1, p2)
 
 

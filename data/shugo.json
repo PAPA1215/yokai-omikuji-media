@@ -1,14 +1,14 @@
 [
- {"month": 1, "name": "座敷童子", "file": "zashikiwarashi", "line": "いるだけで、場が明るくなる人"},
- {"month": 2, "name": "化け狐", "file": "bakegitsune", "line": "機転がきき、場に合わせて変われる人"},
- {"month": 3, "name": "猫又", "file": "nekomata", "line": "気ままに見えて、情が深い人", "focus": 0.22},
- {"month": 4, "name": "アマビエ", "file": "amabie", "line": "まわりの不安を、やわらげる人"},
- {"month": 5, "name": "天狗", "file": "tengu", "line": "誇り高く、ひとつの道を極める人"},
- {"month": 6, "name": "唐傘お化け", "file": "karakasa", "line": "愛嬌で人を驚かせ、和ませる人"},
- {"month": 7, "name": "河童", "file": "kappa", "line": "義理がたく、約束を守る人", "focus": 0.27},
- {"month": 8, "name": "海坊主", "file": "umibozu", "line": "静かだが、動けば大きな波を起こす人", "focus": 0.20},
- {"month": 9, "name": "一反木綿", "file": "ittanmomen", "line": "ふわりと自由に、風を読む人"},
- {"month": 10, "name": "小豆洗い", "file": "azukiarai", "line": "こつこつ続ける、手仕事の人", "focus": 0.20},
- {"month": 11, "name": "ぬらりひょん", "file": "nurarihyon", "line": "どこにでも馴染む、つかみどころのない人"},
- {"month": 12, "name": "雪女", "file": "yukionna", "line": "涼やかで、約束を大切にする人"}
+ {"month": 1, "name": "座敷童子", "file": "zashikiwarashi", "line": "いるだけで、場が明るくなる人", "name_en": "Zashiki-warashi", "gloss_en": "the house spirit", "line_en": "Brightens any room just by being there"},
+ {"month": 2, "name": "化け狐", "file": "bakegitsune", "line": "機転がきき、場に合わせて変われる人", "name_en": "Bakegitsune", "gloss_en": "the shape-shifting fox", "line_en": "Quick-witted, at ease in any setting"},
+ {"month": 3, "name": "猫又", "file": "nekomata", "line": "気ままに見えて、情が深い人", "focus": 0.22, "name_en": "Nekomata", "gloss_en": "the two-tailed cat", "line_en": "Seems aloof, but loves deeply"},
+ {"month": 4, "name": "アマビエ", "file": "amabie", "line": "まわりの不安を、やわらげる人", "name_en": "Amabie", "gloss_en": "the sea prophet", "line_en": "Eases the worries of those around"},
+ {"month": 5, "name": "天狗", "file": "tengu", "line": "誇り高く、ひとつの道を極める人", "name_en": "Tengu", "gloss_en": "the mountain goblin", "line_en": "Proud, and masters a single path"},
+ {"month": 6, "name": "唐傘お化け", "file": "karakasa", "line": "愛嬌で人を驚かせ、和ませる人", "name_en": "Karakasa", "gloss_en": "the umbrella spirit", "line_en": "Startles people, then charms them"},
+ {"month": 7, "name": "河童", "file": "kappa", "line": "義理がたく、約束を守る人", "focus": 0.27, "name_en": "Kappa", "gloss_en": "the river imp", "line_en": "Loyal, and keeps every promise"},
+ {"month": 8, "name": "海坊主", "file": "umibozu", "line": "静かだが、動けば大きな波を起こす人", "focus": 0.20, "name_en": "Umibozu", "gloss_en": "the sea monk", "line_en": "Quiet, until the waves begin to rise"},
+ {"month": 9, "name": "一反木綿", "file": "ittanmomen", "line": "ふわりと自由に、風を読む人", "name_en": "Ittan-momen", "gloss_en": "the flying cloth", "line_en": "Light and free, reads the wind"},
+ {"month": 10, "name": "小豆洗い", "file": "azukiarai", "line": "こつこつ続ける、手仕事の人", "focus": 0.20, "name_en": "Azuki-arai", "gloss_en": "the bean washer", "line_en": "Patient hands that keep at it"},
+ {"month": 11, "name": "ぬらりひょん", "file": "nurarihyon", "line": "どこにでも馴染む、つかみどころのない人", "name_en": "Nurarihyon", "gloss_en": "the uninvited guest", "line_en": "At home anywhere, hard to pin down"},
+ {"month": 12, "name": "雪女", "file": "yukionna", "line": "涼やかで、約束を大切にする人", "name_en": "Yuki-onna", "gloss_en": "the snow woman", "line_en": "Cool and calm, true to a promise"}
 ]
