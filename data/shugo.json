@@ -1,0 +1,14 @@
+[
+ {"month": 1, "name": "座敷童子", "file": "zashikiwarashi", "line": "いるだけで、場が明るくなる人"},
+ {"month": 2, "name": "化け狐", "file": "bakegitsune", "line": "機転がきき、場に合わせて変われる人"},
+ {"month": 3, "name": "猫又", "file": "nekomata", "line": "気ままに見えて、情が深い人", "focus": 0.22},
+ {"month": 4, "name": "アマビエ", "file": "amabie", "line": "まわりの不安を、やわらげる人"},
+ {"month": 5, "name": "天狗", "file": "tengu", "line": "誇り高く、ひとつの道を極める人"},
+ {"month": 6, "name": "唐傘お化け", "file": "karakasa", "line": "愛嬌で人を驚かせ、和ませる人"},
+ {"month": 7, "name": "河童", "file": "kappa", "line": "義理がたく、約束を守る人", "focus": 0.27},
+ {"month": 8, "name": "海坊主", "file": "umibozu", "line": "静かだが、動けば大きな波を起こす人", "focus": 0.20},
+ {"month": 9, "name": "一反木綿", "file": "ittanmomen", "line": "ふわりと自由に、風を読む人"},
+ {"month": 10, "name": "小豆洗い", "file": "azukiarai", "line": "こつこつ続ける、手仕事の人", "focus": 0.20},
+ {"month": 11, "name": "ぬらりひょん", "file": "nurarihyon", "line": "どこにでも馴染む、つかみどころのない人"},
+ {"month": 12, "name": "雪女", "file": "yukionna", "line": "涼やかで、約束を大切にする人"}
+]
