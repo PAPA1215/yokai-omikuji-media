@@ -103,9 +103,10 @@ def night_card(spec):
     bg = cover(Image.open(spec["bg"]), focus_y=float(spec.get("focus_y", 0.5)))
     # 全体を少し落とし、中央をさらに暗くして文字を読みやすくする
     dark = Image.new("RGB", (CW, CH), (4, 10, 16))
-    bg = Image.blend(bg, dark, 0.38)
+    bg = Image.blend(bg, dark, float(spec.get("dim", 0.10)))
     mask = Image.new("L", (CW, CH), 0)
-    ImageDraw.Draw(mask).ellipse((CW * 0.08, CH * 0.06, CW * 0.92, CH * 0.94), fill=150)
+    ImageDraw.Draw(mask).ellipse((CW * 0.08, CH * 0.06, CW * 0.92, CH * 0.94),
+                                 fill=int(255 * float(spec.get("center", 0.30))))
     mask = mask.filter(ImageFilter.GaussianBlur(120))
     bg = Image.composite(dark, bg, mask)
     L = Layer(bg)
@@ -215,6 +216,19 @@ def seal(img, x, y, text, size, vertical=True):
     return w, h
 
 
+def calmest(img, boxes):
+    """札を置いても絵の邪魔になりにくい場所を選ぶ。boxes は (x, y, w, h) の候補。線の少ない所を選ぶ。"""
+    import numpy as np
+    a = np.asarray(img.convert("L").filter(ImageFilter.FIND_EDGES), dtype=np.float32)
+    best, best_score = boxes[0], None
+    for k, (x, y, w, h) in enumerate(boxes):
+        x, y, w, h = int(x), int(y), int(w), int(h)
+        score = float(a[max(0, y):y + h, max(0, x):x + w].mean()) * (1.0 + 0.002 * k)
+        if best_score is None or score < best_score:
+            best, best_score = (x, y, w, h), score
+    return best
+
+
 def emaki_card(spec):
     en = spec.get("lang") == "en"
     img = cover(Image.open(spec["bg"]), focus_y=float(spec.get("focus_y", 0.5))).convert("RGBA")
@@ -222,49 +236,63 @@ def emaki_card(spec):
     label = spec.get("label", "LORE" if en else "雑学")
     over = Image.new("RGBA", img.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(over)
-    if en:                                       # 横書きの札を左下に
-        f = fit([title], "bold", (50, 46, 42, 38, 34), 1180, 1) if title else font("bold", 42)
+    slip_left = False
+    if en:                                       # 横書きの札。下の左右どちらか、絵の邪魔にならない側に置く
+        f = fit([title], "bold", (50, 46, 42, 38, 34), 1100, 1) if title else font("bold", 42)
         h = 96
-        sw, sh = seal(over, 60, CH - 60 - h + (h - 60) / 2, label, 96, vertical=False) if label else (0, 0)
+        fs = font("black", int(96 * 0.36))
+        sw = int(text_w(label, fs, 4) + 96 * 0.5) if label else 0
+        w = int(text_w(title, f, 1) + 64) if title else 0
+        total = sw + (18 if label and title else 0) + w
+        y0 = CH - 60 - h
+        bx, _, _, _ = calmest(img, [(60, y0, total, h), (CW - 60 - total, y0, total, h)])
+        slip_left = bx < CW / 2
+        if label:
+            seal(over, bx, y0 + (h - 60) / 2, label, 96, vertical=False)
         if title:
-            x0 = 60 + (sw + 18 if label else 0)
-            w = int(text_w(title, f, 1) + 64)
-            d.rounded_rectangle((x0, CH - 60 - h, x0 + w, CH - 60), radius=4, fill=SLIP + (238,), outline=SUMI + (255,), width=3)
+            x0 = bx + (sw + 18 if label else 0)
+            d.rectangle((x0 + 5, y0 + 6, x0 + w + 5, y0 + h + 6), fill=(0, 0, 0, 60))
+            d.rounded_rectangle((x0, y0, x0 + w, y0 + h), radius=4, fill=SLIP + (240,), outline=SUMI + (255,), width=3)
             l, t, r, b = d.textbbox((0, 0), "Hg", font=f)
             tx = x0 + 32
             for ch in title:
-                d.text((tx, CH - 60 - h + (h - (b - t)) / 2 - t), ch, font=f, fill=SUMI + (255,))
+                d.text((tx, y0 + (h - (b - t)) / 2 - t), ch, font=f, fill=SUMI + (255,))
                 tx += f.getlength(ch) + 1
-    else:                                        # 縦書きの題箋を右上に
+    else:                                        # 縦書きの題箋。左右の端のうち、絵の邪魔にならない所に置く
         n = max(1, len(title))
         size = 66
-        while size > 40 and n * (size + 8) + 70 > CH - 60 - 60 - (120 if label else 0):
+        while size > 40 and n * (size + 8) + 70 > CH - 56 - 60 - (120 if label else 0):
             size -= 2
         f = font("bold", size)
         pitch = size + 8
         sw_ = size + 62
-        sh_ = n * pitch + 70
-        x1 = CW - 70
-        x0 = x1 - sw_
+        sh_ = n * pitch + 70 if title else 0
         y0 = 56
+        need_h = sh_ + (112 if label else 0)
+        xs = list(range(CW - 70 - sw_, CW - 70 - sw_ - 261, -20)) + list(range(70, 331, 20))
+        x0, _, _, _ = calmest(img, [(x, y0, sw_, need_h) for x in xs])
+        x1 = x0 + sw_
+        slip_left = x0 < CW / 2
         if title:
             d.rectangle((x0 + 6, y0 + 8, x1 + 6, y0 + sh_ + 8), fill=(0, 0, 0, 70))      # 札の影
-            d.rectangle((x0, y0, x1, y0 + sh_), fill=SLIP + (242,), outline=SUMI + (255,), width=3)
+            d.rectangle((x0, y0, x1, y0 + sh_), fill=SLIP + (244,), outline=SUMI + (255,), width=3)
             d.rectangle((x0 + 9, y0 + 9, x1 - 9, y0 + sh_ - 9), outline=SUMI + (120,), width=1)
             vertical_text(over, (x0 + x1) / 2, y0 + 35, title, f, SUMI, pitch)
         if label:
             ssz = 92
-            seal(over, (x0 + x1) / 2 - ssz / 2 if title else x1 - ssz, (y0 + sh_ + 20) if title else y0, label, ssz)
+            seal(over, (x0 + x1) / 2 - ssz / 2, (y0 + sh_ + 20) if title else y0, label, ssz)
     out = Image.alpha_composite(img, over)
     brand = spec.get("brand", "Yokai Oracle" if en else "妖怪のお告げ")
     if brand:
         f_b = font("bold", 26)
         d2 = ImageDraw.Draw(out)
         bw = text_w(brand, f_b, 3)
-        bx = CW - 60 - bw if en else 60
-        x = bx
+        if en:
+            x = 60 if not slip_left else CW - 60 - bw     # 札と反対側の下
+        else:
+            x = CW - 60 - bw if slip_left else 60
         for ch in brand:
-            d2.text((x, CH - 58), ch, font=f_b, fill=SUMI + (170,))
+            d2.text((x, CH - 58), ch, font=f_b, fill=SUMI + (175,))
             x += f_b.getlength(ch) + 3
     return out.convert("RGB")
 
