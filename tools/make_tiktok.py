@@ -132,6 +132,17 @@ def wrap(text, fnt, rfnt, max_w, sp=0):
             cur_w = sum(tok_w(t, fnt, rfnt, sp) for t in cur)
         if cur:
             lines.append(cur)
+        # 折り返しで最後の行が1〜2字だけ残ったら、前の行から字を回して釣り合わせる
+        if len(lines) >= 2 and len(para) > len(lines[-1]) and len(lines[-1]) <= 2:
+            prev, last = lines[-2], lines[-1]
+            while len(last) < 4 and len(prev) > 6:
+                if prev[-1][0] == "c" and prev[-1][1] in NO_LINE_START:
+                    last.insert(0, prev.pop())
+                    continue
+                last.insert(0, prev.pop())
+                if not (last[0][0] == "c" and last[0][1] in NO_LINE_START):
+                    if len(last) >= 4:
+                        break
     return lines or [[]]
 
 
@@ -194,12 +205,22 @@ def header(c, date_label):
         c.put((LEFT, 296), date_label, font("semi", 34), PAPER, spacing=2)
 
 
+def body_size(items):
+    """本文(body)が、書いた改行どおりに収まる一番大きい字の大きさを返す。"""
+    texts = [s for kind, s in items if kind == "body"]
+    for size in (58, 54, 50):
+        fnt, rfnt = font("semi", size), font("bold", round(size * 0.5))
+        if all(len(wrap(s, fnt, rfnt, RIGHT - LEFT, 1)) == len(str(s).split("\n")) for s in texts):
+            return size
+    return 50
+
+
 def layout(items, spec, bottom=TEXT_BOTTOM):
     """items: (種類, 文字列) を下端そろえで積む。種類は label / body / big / name / kana / gap / bar。
     戻り値は (行のリスト, ブロックの上端y)。行は dict。"""
     styles = {
         "label": (font("bold", 44), GOLD, 1.55, 10),
-        "body": (font("semi", 58), PAPER, 1.78, 1),     # ふりがなの分、行間を広めに
+        "body": (font("semi", body_size(items)), PAPER, 1.78, 1),     # ふりがなの分、行間を広めに
         "big": (font("black", 92), PAPER, 1.5, 2),
         "kana": (font("bold", 50), GOLD, 1.5, 14),
     }
