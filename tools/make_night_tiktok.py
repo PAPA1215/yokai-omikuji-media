@@ -20,6 +20,8 @@
     sato   土 妖怪の里だより "title", "parts": [本文を2〜4つ], "file"(任意)
     raishu 日 来週の守護妖怪 "file", "name", "kana"(任意), "range" (例 "11月16日〜22日"), "lore", "omen"
 
+夜の絵: art/<file>_4.png と _5.png (朝の動画と違う画角・ポーズの夜の場面)があれば、
+3〜4場面のうち2場面に優先して使う(朝と同じ絵ばかりにならないように)。なければ本体・_2・_3 で作る。
 書き方は tools/make_tiktok.py と同じ(改行は \\n で自分で入れる。ふりがなは {漢字|よみ})。
 1行は全角14字以内がめやす。長い行は字を少し小さくして収める。
 確認用の画像を <out>/slide_night01.jpg … に書き出す(リポジトリには入らない)。
@@ -125,7 +127,8 @@ class Night:
 
 def build_quiz(n, s):
     hints = s["hints"]
-    a1, a2 = art(s.get("file")), art(s.get("file"), ("_2", ""))
+    f = s.get("file")
+    a1, a2 = art(f, ("_4", "")), art(f, ("_5", "_2", ""))   # 夜の絵(_4・_5)があれば優先
     n.add([("big", "この妖怪は、\nだれ。"), ("gap", 30), ("body", f"ヒントは{len(hints)}つ。")], 3.0)
     kan = "一二三四五"
     for i, h in enumerate(hints):
@@ -141,7 +144,7 @@ def build_nitaku(n, s):
     n.add([("big", s["question"])], read_time(s["question"], base=2.4))
     for key, side in (("A", a), ("B", b)):
         n.add(n.name_items(side["name"], side.get("kana")) + [("body", side["line"])],
-              read_time(side["line"], base=2.8, lo=3.6), bg_path=art(side.get("file"), ("_2", "")),
+              read_time(side["line"], base=2.8, lo=3.6), bg_path=art(side.get("file"), ("_4", "_2", "")),
               title_img=art(side.get("file"), ("_title",)), top_text=key)
     n.add([("big", f"{a['name']}か、\n{b['name']}か。"), ("gap", 30),
            ("body", "あなたなら、どちらを選びますか。\nコメントで教えてください。")], 3.8)
@@ -151,8 +154,11 @@ def build_story(n, s, note, hide=False):
     """怪談・里だより: 題 → 本文を少しずつ。
     hide=True(怪談)は、最後の場面まで妖怪の絵を暗く沈めて見せ、最後に正体を見せる。"""
     f = s.get("file")
-    pics = [p for p in (art(f, ("_3", "")), art(f, ("_2", "")), art(f)) if p] if hide else \
-           [p for p in (art(f), art(f, ("_2", "")), art(f, ("_3", ""))) if p]
+    if hide:                       # [伏せて見せる絵, …, 最後に正体を見せる絵]
+        pics = [p for p in (art(f, ("_4", "_3", "")), art(f, ("_5", ""))) if p]
+    else:
+        pics = [p for p in (art(f, ("_4", "")), art(f, ("_5", "_2", "")), art(f, ("_3", ""))) if p]
+    pics = list(dict.fromkeys(pics))
     n.add([("big", s["title"]), ("gap", 30), ("body", note)], 3.0)
     parts = s["parts"]
     for i, part in enumerate(parts):
@@ -168,13 +174,17 @@ def build_story(n, s, note, hide=False):
 
 def build_kotoba(n, s):
     f = s.get("file")
-    p1, p2, p3 = art(f), art(f, ("_2", "")), art(f, ("_3", "_2", ""))
+    n4, n5 = art(f, ("_4",)), art(f, ("_5",))
+    if n4 and n5:                  # 夜の絵があれば、4場面のうち2場面を夜の絵にする
+        bgs = [n4, art(f, ("_2", "")), n5, art(f, ("_3", "_2", ""))]
+    else:
+        bgs = [art(f), art(f, ("_2", "")), art(f, ("_3", "_2", "")), art(f, ("_2", ""))]
     head = ([("kana", s["kana"])] if s.get("kana") else []) + [("big", s["phrase"]), ("bar", "")]
-    n.add(head, 3.2, bg_path=p1)
-    n.add([("label", s.get("meaning_label", "意味")), ("body", s["meaning"])], read_time(s["meaning"]), bg_path=p2)
-    n.add([("label", s.get("origin_label", "由来")), ("body", s["origin"])], read_time(s["origin"]), bg_path=p3)
+    n.add(head, 3.2, bg_path=bgs[0])
+    n.add([("label", s.get("meaning_label", "意味")), ("body", s["meaning"])], read_time(s["meaning"]), bg_path=bgs[1])
+    n.add([("label", s.get("origin_label", "由来")), ("body", s["origin"])], read_time(s["origin"]), bg_path=bgs[2])
     if s.get("close"):
-        n.add([("body", s["close"])], read_time(s["close"], lo=3.4), bg_path=p2)
+        n.add([("body", s["close"])], read_time(s["close"], lo=3.4), bg_path=bgs[3])
 
 
 def build_shugo(n, s):
@@ -189,7 +199,8 @@ def build_shugo(n, s):
 
 
 def build_raishu(n, s):
-    p1, p2, p3 = art(s["file"]), art(s["file"], ("_2", "")), art(s["file"], ("_3", ""))
+    f = s["file"]
+    p1, p2, p3 = art(f, ("_4", "")), art(f, ("_2", "")), art(f, ("_5", "_3", ""))
     n.add([("big", "来週を見守る\n妖怪は。"), ("gap", 30), ("body", s["range"])], 3.0)
     n.add(n.name_items(s["name"], s.get("kana")), 2.8, bg_path=p1, title_img=art(s["file"], ("_title",)))
     n.add([("label", "伝承"), ("body", s["lore"])], read_time(s["lore"]), bg_path=p2 or p1)
