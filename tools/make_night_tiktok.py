@@ -7,7 +7,7 @@
 
 設定ファイルの共通の項目:
     "type"        quiz / nitaku / kaidan / kotoba / shugo / sato / raishu (曜日の型)
-    "out"         出力フォルダ(例 "out/2026-11-13")。動画は <out>/night.mp4
+    "out"         出力フォルダ(例 "out/2026-11-13")。動画は <out>/night.mp4 (昼の雑学は noon.mp4)
     "date_label"  見出しの下の日付(例 "11月13日（金）")
 
 型ごとの項目(file は art/ の妖怪のファイル名。絵がなければ夜の背景だけで作る):
@@ -19,12 +19,14 @@
     shugo  金 週末のお告げ  "sub" (例 "11月14日・15日"), "lines": {"1": "...", ... "12": "..."}
     sato   土 妖怪の里だより "title", "parts": [本文を2〜4つ], "file"(任意)
     raishu 日 来週の守護妖怪 "file", "name", "kana"(任意), "range" (例 "11月16日〜22日"), "lore", "omen"
+    zatsugaku 昼の雑学(毎日) "file", "title", "parts": [本文を2〜3つ], "lead"(任意), "close"(任意)
+                            art/<file>_emaki.png があれば、絵巻を右から左へたどる動画になる。出力は <out>/noon.mp4
 
 夜の絵: art/<file>_4.png と _5.png (朝の動画と違う画角・ポーズの夜の場面)があれば、
 3〜4場面のうち2場面に優先して使う(朝と同じ絵ばかりにならないように)。なければ本体・_2・_3 で作る。
 書き方は tools/make_tiktok.py と同じ(改行は \\n で自分で入れる。ふりがなは {漢字|よみ})。
 1行は全角14字以内がめやす。長い行は字を少し小さくして収める。
-確認用の画像を <out>/slide_night01.jpg … に書き出す(リポジトリには入らない)。
+確認用の画像を <out>/slide_night01.jpg … (昼は slide_noon01.jpg …) に書き出す(リポジトリには入らない)。
 音は tools/bgm.flac (BGM「月の笛」)。
 """
 import json
@@ -50,6 +52,7 @@ TYPES = {
     "shugo": ("週末のお告げ", "bg_mikuji", 0.93),
     "sato": ("妖怪の里だより", "bg_sato", 0.92),
     "raishu": ("来週の守護妖怪", "bg_raishu", 0.86),
+    "zatsugaku": ("妖怪雑学", "bg_kotoba", 0.96),   # 昼の雑学(出力は noon.mp4)
 }
 SHUGO = os.path.join(ROOT, "data", "shugo.json")
 SHADE = (10, 0.42)                 # 正体を伏せる場面: 絵をぼかして暗くし、影だけ見せる
@@ -87,6 +90,8 @@ class Night:
         self.label, bg, self.bg_x = TYPES[spec["type"]]
         self.night_bg = os.path.join(ROOT, "bg", bg + ".png")
         self.scenes = []           # {"bg": Image, "ov": Image, "dur": 秒}
+        self.pan = None            # 横長の絵巻を右から左へたどる動画にするときの絵
+        self.out_name = "night"
 
     # --- 背景 ---
     def bg(self, path=None, focus=0.42, shade=None):
@@ -116,7 +121,7 @@ class Night:
         return c.done()
 
     def add(self, items, dur, bg_path=None, focus=0.42, shade=None, title_img=None, top_text=None):
-        self.scenes.append({"bg": self.bg(bg_path, focus, shade),
+        self.scenes.append({"bg": None if self.pan else self.bg(bg_path, focus, shade),
                             "ov": self.overlay(items, title_img, top_text), "dur": dur})
 
     def name_items(self, name, kana=None):
@@ -207,6 +212,20 @@ def build_raishu(n, s):
     n.add([("label", "来週のお告げ"), ("body", s["omen"])], read_time(s["omen"], lo=3.6), bg_path=p3 or p2 or p1)
 
 
+def build_zatsugaku(n, s):
+    """昼の雑学: 絵巻風の絵(_emaki)があれば、右から左へゆっくりたどる。なければ縦の絵で作る。"""
+    f = s.get("file")
+    n.out_name = "noon"
+    n.pan = art(f, ("_emaki",))
+    pics = [p for p in (art(f, ("_3", "")), art(f, ("_2", "")), art(f)) if p] or [None]
+    n.add([("big", s["title"]), ("gap", 30), ("body", s.get("lead", "今日の守護妖怪の、豆知識です。"))], 3.4,
+          bg_path=pics[0])
+    for i, part in enumerate(s["parts"]):
+        n.add([("body", part)], read_time(part, lo=3.4), bg_path=pics[(i + 1) % len(pics)])
+    if s.get("close"):
+        n.add([("body", s["close"])], read_time(s["close"], lo=3.2), bg_path=pics[0])
+
+
 BUILDERS = {
     "quiz": build_quiz,
     "nitaku": build_nitaku,
@@ -215,17 +234,33 @@ BUILDERS = {
     "shugo": build_shugo,
     "sato": lambda n, s: build_story(n, s, "霧の里の、小さな創作です。"),
     "raishu": build_raishu,
+    "zatsugaku": build_zatsugaku,
 }
 
 
 # ---------- 動画 ----------
 
-def make_video(scenes, paths, out_path, seed):
+def pan_frame(pan_img, t, total):
+    """絵巻を右から左へたどるときの、t 秒目の画面。"""
+    x = int((pan_img.width - W) * (1 - t / total))
+    return pan_img.crop((x, 0, x + W, H))
+
+
+def make_video(scenes, paths, out_path, seed, pan=None):
     total = sum(s["dur"] for s in scenes)
     xf, fade = 0.45, 0.3
     cmd = ["ffmpeg", "-y", "-loglevel", "error"]
     f, starts, t = [], [], 0.0
-    for i, (s, (bp, _)) in enumerate(zip(scenes, paths)):
+    if pan:                        # 1枚の横長の絵を、右から左へ(絵巻を読む向き)ゆっくり動かす
+        cmd += ["-loop", "1", "-framerate", str(FPS), "-t", f"{total:.3f}", "-i", pan]
+        f.append(f"[0:v]crop={W}:{H}:x='(in_w-{W})*(1-t/{total:.3f})':y=0,format=yuv420p,setsar=1[x0]")
+        for s in scenes:
+            starts.append(t)
+            t += s["dur"]
+        scenes_bg = []
+    else:
+        scenes_bg = scenes
+    for i, (s, (bp, _)) in enumerate(zip(scenes_bg, paths)):
         dur = s["dur"] + (xf if i < len(scenes) - 1 else 0)
         nfr = int(math.ceil(dur * FPS))
         cmd += ["-loop", "1", "-framerate", str(FPS), "-t", f"{dur:.3f}", "-i", bp]
@@ -234,11 +269,14 @@ def make_video(scenes, paths, out_path, seed):
                  f"y='ih*0.42-(ih/zoom*0.42)':d=1:s={W}x{H}:fps={FPS},format=yuv420p,setsar=1[s{i}]")
         starts.append(t)
         t += s["dur"]
-    last = "s0"
-    for i in range(1, len(scenes)):
-        f.append(f"[{last}][s{i}]xfade=transition=fade:duration={xf}:offset={starts[i]:.3f}[x{i}]")
-        last = f"x{i}"
-    idx = len(scenes)
+    if pan:
+        last, idx = "x0", 1
+    else:
+        last = "s0"
+        for i in range(1, len(scenes)):
+            f.append(f"[{last}][s{i}]xfade=transition=fade:duration={xf}:offset={starts[i]:.3f}[x{i}]")
+            last = f"x{i}"
+        idx = len(scenes)
     light = out_path + ".light.mp4"
     mt.write_light_layer(light, total, seed)
     cmd += ["-i", light]
@@ -287,25 +325,35 @@ def main():
         BUILDERS[spec["type"]](n, spec)
     except KeyError as e:
         sys.exit(f"spec に {e} がありません。")
-    paths = []
+    paths, pan_path, pan_img = [], None, None
+    total_dur = sum(s["dur"] for s in n.scenes)
+    if n.pan:                      # 絵巻を縦の画面の高さに合わせて広げておく
+        src = Image.open(n.pan).convert("RGB")
+        pan_img = src.resize((max(W + 2, round(src.width * H / src.height)), H), Image.LANCZOS)
+        pan_path = os.path.join(out, "_npan.jpg")
+        pan_img.save(pan_path, quality=95)
+    t = 0.0
     for i, s in enumerate(n.scenes, start=1):
         bp, op = os.path.join(out, f"_nbg{i:02d}.jpg"), os.path.join(out, f"_nov{i:02d}.png")
-        s["bg"].save(bp, quality=95)
+        bg = pan_frame(pan_img, t + s["dur"] / 2, total_dur) if pan_img else s["bg"]
+        t += s["dur"]
+        bg.save(bp, quality=95)
         s["ov"].save(op)
-        Image.alpha_composite(s["bg"].convert("RGBA"), s["ov"]).convert("RGB").save(
-            os.path.join(out, f"slide_night{i:02d}.jpg"), quality=88)
+        Image.alpha_composite(bg.convert("RGBA"), s["ov"]).convert("RGB").save(
+            os.path.join(out, f"slide_{n.out_name}{i:02d}.jpg"), quality=88)
         paths.append((bp, op))
     total = 0.0
+    video = os.path.join(out, f"{n.out_name}.mp4")
     try:
         if spec.get("video", True):
             seed = sum(ord(ch) for ch in json.dumps(spec, ensure_ascii=False)) % 100000
-            total = make_video(n.scenes, paths, os.path.join(out, "night.mp4"), seed)
+            total = make_video(n.scenes, paths, video, seed, pan=pan_path)
     finally:
-        for bp, op in paths:
-            for p in (bp, op):
-                if os.path.exists(p):
-                    os.remove(p)
-    print("ok:", os.path.join(spec["out"], "night.mp4"), f"| {total:.1f}秒 | {len(n.scenes)} 場面 | {spec['type']}")
+        for p in [x for pair in paths for x in pair] + ([pan_path] if pan_path else []):
+            if os.path.exists(p):
+                os.remove(p)
+    print("ok:", os.path.join(spec["out"], f"{n.out_name}.mp4"), f"| {total:.1f}秒 | {len(n.scenes)} 場面 | "
+          f"{spec['type']}" + (" | 絵巻" if pan_path else ""))
 
 
 if __name__ == "__main__":
