@@ -27,7 +27,9 @@ spec.json の例:
 書き方:
 - ふりがなは {漢字|よみ} と書く(hook / lore / omen / act で使える)。大人でも読みにくい語だけに付ける。
 - 改行は \n。1行は全角14字以内がめやす(長い行は字を少し小さくして収める)。
-- "motion": false で霧と光の粒の動きを止める。"audio": false で風の音を消す。"video": false で動画を作らない。
+- "motion": false で霧と光の粒の動きを止める。"audio": false で音を消す。"video": false で動画を作らない。
+- 音は tools/bgm.flac (BGM「月の笛」。tools/make_bgm.py で作ったオリジナル曲)を流す。
+  bgm.flac がなければ、以前の風の音になる。
 - 英語版は "lang": "en" を足す。見出しが英語になり、単語の途中で折り返さない。"kana" にローマ字の名前、
   "sub" に名前の下の一言(例: "the shapeshifting fox")を書ける。名前の筆文字は日本語のまま使う。
 
@@ -55,6 +57,7 @@ DURS = [3.0, 3.0, 4.5, 5.0]    # 4場面の長さ(秒)
 FPS = 30
 HERE = os.path.dirname(os.path.abspath(__file__))
 NAME_FONT = os.path.join(HERE, "fonts", "name.ttf")
+BGM = os.path.join(HERE, "bgm.flac")         # BGM「月の笛」(2026-11-12 から使用)
 FONT_DIRS = ["/usr/share/fonts/opentype/noto", "/usr/share/fonts/truetype/noto",
              "/usr/share/fonts/noto-cjk", "/System/Library/Fonts"]
 FONT_FILES = {
@@ -504,7 +507,13 @@ def make_video(bg_paths, plan, ov_paths, out_path, audio=True, motion=True, seed
         t = b
     f.append(f"[{last}]format=yuv420p[vout]")
     maps = ["-map", "[vout]"]
-    if audio:
+    if audio and os.path.exists(BGM):
+        # BGM: 動画の長さに合わせて切り(短ければくり返し)、最後はゆっくり消す
+        cmd += ["-stream_loop", "-1", "-i", BGM]
+        f.append(f"[{idx}:a]atrim=0:{total},asetpts=N/SR/TB,"
+                 f"afade=t=out:st={total - 1.5:.2f}:d=1.5[aout]")
+        maps += ["-map", "[aout]", "-c:a", "aac", "-b:a", "192k"]
+    elif audio:
         cmd += ["-f", "lavfi", "-t", f"{total}", "-i", "anoisesrc=color=brown:amplitude=0.9:seed=11:sample_rate=44100"]
         f.append(f"[{idx}:a]highpass=f=90,lowpass=f=420,tremolo=f=0.12:d=0.55,volume=0.5,"
                  f"afade=t=in:st=0:d=1.2,afade=t=out:st={total - 1.5:.2f}:d=1.5[aout]")
