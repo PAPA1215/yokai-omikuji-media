@@ -15,6 +15,7 @@
     nitaku 火 究極の二択    "question", "a": {"file","name","line"}, "b": {"file","name","line"}
     kaidan 水 140字怪談     "title", "parts": [本文を2〜4つに分けたもの], "file"(任意)
     kotoba 木 妖怪のことば  "phrase", "kana"(任意), "meaning", "origin", "close"(任意), "file"(任意)
+                            見出しは "meaning_label"(既定「意味」)、"origin_label"(既定「由来」)で変えられる
     shugo  金 週末のお告げ  "sub" (例 "11月14日・15日"), "lines": {"1": "...", ... "12": "..."}
     sato   土 妖怪の里だより "title", "parts": [本文を2〜4つ], "file"(任意)
     raishu 日 来週の守護妖怪 "file", "name", "kana"(任意), "range" (例 "11月16日〜22日"), "lore", "omen"
@@ -170,8 +171,8 @@ def build_kotoba(n, s):
     p1, p2, p3 = art(f), art(f, ("_2", "")), art(f, ("_3", "_2", ""))
     head = ([("kana", s["kana"])] if s.get("kana") else []) + [("big", s["phrase"]), ("bar", "")]
     n.add(head, 3.2, bg_path=p1)
-    n.add([("label", "意味"), ("body", s["meaning"])], read_time(s["meaning"]), bg_path=p2)
-    n.add([("label", "由来"), ("body", s["origin"])], read_time(s["origin"]), bg_path=p3)
+    n.add([("label", s.get("meaning_label", "意味")), ("body", s["meaning"])], read_time(s["meaning"]), bg_path=p2)
+    n.add([("label", s.get("origin_label", "由来")), ("body", s["origin"])], read_time(s["origin"]), bg_path=p3)
     if s.get("close"):
         n.add([("body", s["close"])], read_time(s["close"], lo=3.4), bg_path=p2)
 
