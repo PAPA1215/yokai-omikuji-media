@@ -28,6 +28,10 @@ spec.json の例:
 - ふりがなは {漢字|よみ} と書く(hook / lore / omen / act で使える)。大人でも読みにくい語だけに付ける。
 - 改行は \n。1行は全角14字以内がめやす(長い行は字を少し小さくして収める)。
 - "motion": false で霧と光の粒の動きを止める。"audio": false で音を消す。"video": false で動画を作らない。
+- 動画は10〜13秒ほど(2026-11-16 から)。場面の長さは文の字数で決まる。lore と omen を2行ずつにすると約11秒になる。
+  最初の場面は、文字を最初のコマから出し、絵がすばやく寄って風が横切る(見る人の手を止めるため)。
+  layers/<名前>_mask.png と layers/<名前>_bgfill.jpg があれば、妖怪だけが手前に浮き出る動きになる(なければ絵全体が寄る)。
+  "pace": "classic" で、以前の長さ(15.5秒)とゆっくりした動きに戻せる。
 - 音は tools/bgm.flac (BGM「月の笛」。tools/make_bgm.py で作ったオリジナル曲)を流す。
   bgm.flac がなければ、以前の風の音になる。
 - 英語版は "lang": "en" を足す。見出しが英語になり、単語の途中で折り返さない。"kana" にローマ字の名前、
@@ -53,8 +57,10 @@ HEADER_Y = 284                 # 見出しの上端(上は検索窓・タブに�
 PAPER = (236, 230, 211)
 GOLD = (232, 194, 106)
 VERMILION = (207, 61, 48)
-DURS = [3.0, 3.0, 4.5, 5.0]    # 4場面の長さ(秒)
+DURS = [3.0, 3.0, 4.5, 5.0]    # 4場面の長さ(秒)。"pace": "classic" のとき。ふだんは plan_durs で決める
 FPS = 30
+XF = 0.7                       # 絵が切り替わるときの重なり(秒)
+TFADE = 0.4                    # 文字が出入りする長さ(秒)
 HERE = os.path.dirname(os.path.abspath(__file__))
 NAME_FONT = os.path.join(HERE, "fonts", "name.ttf")
 BGM = os.path.join(HERE, "bgm.flac")         # BGM「月の笛」(2026-11-12 から使用)
@@ -172,9 +178,9 @@ def wrap(text, fnt, rfnt, max_w, sp=0):
 
 # ---------- 絵 ----------
 
-def cover(img, focus_y=0.42):
+def cover(img, focus_y=0.42, mode="RGB"):
     """絵を 1080x1920 いっぱいに切り抜く。focus_y は上下どこを中心に残すか(0=上, 1=下)。"""
-    img = img.convert("RGB")
+    img = img.convert(mode)
     s = max(W / img.width, H / img.height)
     nw, nh = round(img.width * s), round(img.height * s)
     img = img.resize((nw, nh), Image.LANCZOS)
@@ -386,6 +392,94 @@ def overlays(spec):
 
 # ---------- 動画 ----------
 
+def visible_len(text):
+    """画面に出る字数(ふりがなの記号と改行は数えない)。"""
+    s = RUBY_RE.sub(lambda m: m.group(1), str(text))
+    return len(s.replace("\n", "").replace(" ", ""))
+
+
+def plan_durs(spec):
+    """4場面の長さを、読む字数から決める(短い文なら全体で11秒ほど)。"""
+    lore = min(4.6, max(2.6, 0.7 + visible_len(spec["lore"]) / 11.0))
+    last = min(5.2, max(3.0, 0.9 + (visible_len(spec["omen"]) + visible_len(spec["act"])) / 11.0))
+    return [2.0, 1.4, round(lore, 2), round(last, 2)]
+
+
+def layer_paths(spec):
+    """妖怪だけを切り出した層(layers/<名前>_mask.png と _bgfill.jpg)。そろっていなければ None。"""
+    stem = os.path.splitext(os.path.basename(spec["art"]))[0]
+    root = os.path.dirname(os.path.dirname(os.path.abspath(spec["art"])))
+    m = spec.get("mask") or os.path.join(root, "layers", stem + "_mask.png")
+    b = spec.get("bgfill") or os.path.join(root, "layers", stem + "_bgfill.jpg")
+    return (m, b) if os.path.exists(m) and os.path.exists(b) else None
+
+
+def render_intro(art_path, layers, dur, out_path, seed=1, focus_y=0.42):
+    """最初の絵の動画を作る。絵がすばやく寄り、風にのった光の筋が横切る。
+    layers があれば、背景より妖怪のほうが大きく寄って、手前に浮き出て見える。"""
+    import numpy as np
+    art = cover(Image.open(art_path), focus_y)
+    fg = None
+    cxn, cyn = 0.5, focus_y
+    if layers:
+        mask = cover(Image.open(layers[0]), focus_y, "L")
+        bgf = cover(Image.open(layers[1]), focus_y)
+        ma = np.asarray(mask, dtype=np.float32) / 255
+        if 0.02 < float((ma > 0.5).mean()) < 0.60:         # 妖怪が小さすぎ・大きすぎの絵では使わない
+            ys, xs = np.nonzero(ma > 0.5)
+            cxn = float(xs.mean()) / W
+            cyn = float(ys.min() + 0.38 * (ys.max() - ys.min())) / H      # 顔に近い、上寄りの点へ寄る
+            fg = art.convert("RGBA")
+            fg.putalpha(mask)
+            art = bgf
+    cxn, cyn = min(0.62, max(0.38, cxn)), min(0.60, max(0.25, cyn))
+    n = int(math.ceil(dur * FPS)) + 2
+    rng = random.Random(seed)
+    streaks = [(rng.uniform(-1.2, 0.9), rng.uniform(0.05, 0.95), rng.uniform(26, 70), rng.choice((2, 2, 3)),
+                rng.uniform(0.45, 1.0), rng.uniform(0.85, 1.35)) for _ in range(150)]
+    tint = np.array([196, 226, 232], np.float32) / 255
+
+    def crop(img, z, dx=0.0):
+        w, h = W / z, H / z
+        x0 = min(max(cxn * W - w * cxn + dx, 0), W - w)
+        y0 = min(max(cyn * H - h * cyn, 0), H - h)
+        return img.resize((W, H), Image.BICUBIC, box=(x0, y0, x0 + w, y0 + h))
+
+    proc = subprocess.Popen(
+        ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}",
+         "-r", str(FPS), "-i", "pipe:0", "-c:v", "libx264", "-preset", "veryfast", "-crf", "14",
+         "-pix_fmt", "yuv420p", out_path], stdin=subprocess.PIPE)
+    for f in range(n):
+        t = f / FPS
+        e = 1 - math.exp(-t / 0.42)                         # 出だしで一気に動き、あとはゆっくり
+        drift = t / max(dur, 0.1)
+        if fg is not None:
+            zb = 1 + 0.06 * e + 0.03 * drift
+            zf = zb * (1 + 0.10 * (1 - math.exp(-t / 0.55)) + 0.015 * drift)
+            frame = crop(art, zb)
+            top = crop(fg, zf, 5 * math.sin(2 * math.pi * t / 3.4))
+            frame.paste(top, (0, 0), top)
+        else:
+            frame = crop(art, 1 + 0.13 * e + 0.04 * drift)
+        g = math.exp(-((t - 0.42) / 0.48) ** 2)             # 風のひと吹き
+        if g > 0.02:
+            lay = Image.new("L", (W // 2, H // 2), 0)
+            d = ImageDraw.Draw(lay)
+            for (u, v, ln, th, amp, sp) in streaks:
+                x = (u + 1.25 * sp * t) * W / 2
+                y = (v + 0.16 * sp * t + 0.015 * math.sin(7 * t + u * 9)) * H / 2
+                if -80 < x < W / 2 + 80:
+                    d.line((x - ln * g * 0.985, y - ln * g * 0.17, x, y), fill=int(255 * amp), width=th)
+            lay = lay.filter(ImageFilter.GaussianBlur(1.3)).resize((W, H), Image.BILINEAR)
+            a = np.asarray(frame, dtype=np.float32) / 255
+            s = (np.asarray(lay, dtype=np.float32) / 255 * (0.85 * g))[..., None] * tint
+            frame = Image.fromarray(((1 - (1 - a) * (1 - s)) * 255 + 0.5).astype(np.uint8))
+        proc.stdin.write(frame.tobytes())
+    proc.stdin.close()
+    if proc.wait() != 0:
+        raise RuntimeError("最初の場面の書き出しに失敗")
+
+
 def scene_plan(n_arts):
     """4場面それぞれに、どの絵(0始まり)を使うか。"""
     return {1: [0, 0, 0, 0], 2: [0, 0, 1, 0], 3: [0, 0, 1, 2]}[min(3, n_arts)]
@@ -463,9 +557,9 @@ def write_light_layer(path, total, seed):
         raise RuntimeError("光の層の書き出しに失敗")
 
 
-def make_video(bg_paths, plan, ov_paths, out_path, audio=True, motion=True, seed=1, focus_y=0.42):
+def make_video(bg_paths, plan, ov_paths, out_path, audio=True, motion=True, seed=1, focus_y=0.42, intro=None):
     total = sum(DURS)
-    xf = 0.7                                   # 絵が切り替わるときの重なり(秒)
+    xf = XF                                    # 絵が切り替わるときの重なり(秒)
     segs = segments(plan)
     cmd = ["ffmpeg", "-y", "-loglevel", "error"]
     f = []
@@ -473,6 +567,10 @@ def make_video(bg_paths, plan, ov_paths, out_path, audio=True, motion=True, seed
     for i, (a, st, d) in enumerate(segs):
         dur = d + (xf if i < len(segs) - 1 else 0)
         nfr = int(math.ceil(dur * FPS))
+        if i == 0 and intro:                   # 最初の絵は、先に作った動画(すばやく寄る動き)を使う
+            cmd += ["-t", f"{dur:.3f}", "-i", intro]
+            f.append(f"[0:v]fps={FPS},scale={W}:{H},format=yuv420p,setsar=1[s0]")
+            continue
         cmd += ["-loop", "1", "-framerate", str(FPS), "-t", f"{dur:.3f}", "-i", bg_paths[a]]
         z = f"1+0.07*on/{nfr}" if i % 2 == 0 else f"1.08-0.07*on/{nfr}"
         f.append(f"[{i}:v]scale={W*2}:{H*2}:flags=lanczos,zoompan=z='{z}':x='iw/2-(iw/zoom/2)':"
@@ -492,12 +590,14 @@ def make_video(bg_paths, plan, ov_paths, out_path, audio=True, motion=True, seed
         last = "lit"
         idx += 1
     # 文字: 場面ごとにふわっと出して消す
-    fade = 0.4
+    fade = TFADE
     t = 0.0
     for j, d in enumerate(DURS):
         cmd += ["-loop", "1", "-framerate", str(FPS), "-t", f"{total}", "-i", ov_paths[j]]
         a, b = t, t + d
-        fx = f"[{idx}:v]format=rgba,fade=t=in:st={a:.2f}:d={fade}:alpha=1"
+        fx = f"[{idx}:v]format=rgba"
+        if not (j == 0 and intro):             # 最初の文字は、最初のコマから見せる
+            fx += f",fade=t=in:st={a:.2f}:d={fade}:alpha=1"
         if j < len(DURS) - 1:
             fx += f",fade=t=out:st={b - fade:.2f}:d={fade}:alpha=1"
         f.append(fx + f"[o{j}]")
@@ -543,6 +643,10 @@ def main():
             arts.append(p)
     spec["_title"] = spec.get("title_image") or sibling(spec["art"], "_title")
     fy = float(spec.get("focus_y", 0.42))
+    global DURS, XF, TFADE
+    quick = spec.get("pace", "quick") != "classic"
+    if quick:
+        DURS, XF, TFADE = plan_durs(spec), 0.5, 0.25
     bgs, bg_paths = [], []
     for i, p in enumerate(arts):
         bg = cover(Image.open(p), fy)
@@ -557,14 +661,30 @@ def main():
         ov_paths.append(p)
         Image.alpha_composite(bgs[plan[i - 1]].convert("RGBA"), ov).convert("RGB").save(
             os.path.join(spec["out"], f"slide{i}.jpg"), quality=90)
+    note = ""
     if spec.get("video", True):
         seed = sum(ord(ch) for ch in str(spec.get("date_label", "")) + spec["name"])
-        make_video(bg_paths, plan, ov_paths, os.path.join(spec["out"], "tiktok.mp4"),
-                   audio=bool(spec.get("audio", True)), motion=bool(spec.get("motion", True)),
-                   seed=seed, focus_y=fy)
+        intro, layers = None, None
+        if quick:
+            intro = os.path.join(spec["out"], "_intro.mp4")
+            layers = layer_paths(spec)
+            segs = segments(plan)
+            try:
+                render_intro(spec["art"], layers, segs[0][2] + (XF if len(segs) > 1 else 0), intro, seed, fy)
+            except Exception as e:             # 最初の場面を作れなくても、以前の動きで動画は作る
+                note = f" | 最初の場面は以前の動き({e})"
+                intro = None
+        try:
+            make_video(bg_paths, plan, ov_paths, os.path.join(spec["out"], "tiktok.mp4"),
+                       audio=bool(spec.get("audio", True)), motion=bool(spec.get("motion", True)),
+                       seed=seed, focus_y=fy, intro=intro)
+        finally:
+            if intro and os.path.exists(intro):
+                os.remove(intro)
+        note = f" | {sum(DURS):.1f}秒 | 浮き出る動き {'あり' if (intro and layers) else 'なし'}" + note
     for p in bg_paths + ov_paths:
         os.remove(p)
-    print("ok:", spec["out"], "| 絵", len(arts), "枚 | 名前の画像", "あり" if spec["_title"] else "なし")
+    print("ok:", spec["out"], "| 絵", len(arts), "枚 | 名前の画像", ("あり" if spec["_title"] else "なし") + note)
 
 
 if __name__ == "__main__":
