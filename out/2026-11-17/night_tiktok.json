@@ -1,0 +1,8 @@
+{
+ "type": "nitaku",
+ "out": "out/2026-11-17",
+ "date_label": "11月17日（火）",
+ "question": "夜道で出会うなら、\nどっち。",
+ "a": {"file": "ittanmomen", "name": "一反木綿", "line": "夕暮れの空から、\nひらひらと舞い降りる白い布。"},
+ "b": {"file": "okuriinu", "name": "送り犬", "line": "夜の山道を、\nずっと後ろからついてくる犬。"}
+}
