@@ -51,8 +51,9 @@ import sys
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 W, H = 1080, 1920
-LEFT, RIGHT = 90, 900          # 文字を置く左右の範囲(右はTikTokのボタンを避ける)
-TEXT_BOTTOM = 1440             # 文字の下端(下は説明文・通知に隠れる)
+LEFT, RIGHT = 90, 870          # 文字を置く左右の範囲(右はTikTokのボタンと「コメする」の字を避ける。2026-11-19 に 900 から狭めた)
+TEXT_BOTTOM = 1320             # 文字の下端(下は名前・説明文と、その上に出る「いいねした人」の丸い印に隠れる。
+                               # 宣伝や検索の帯が出ると全体が上にずれるので、2026-11-19 に 1440 から上げた)
 HEADER_Y = 284                 # 見出しの上端(上は検索窓・タブに隠れる)
 PAPER = (236, 230, 211)
 GOLD = (232, 194, 106)
@@ -73,6 +74,7 @@ FONT_FILES = {
 }
 NO_LINE_START = set("、。，．・：；！？!?)）」』】〕》〉ー～…‥ゃゅょっぁぃぅぇぉャュョッァィゥェォ々")
 NO_LINE_END = set("(（「『【〔《〈")
+HANG_END = set("、。，．」』）")     # 行末で、字の左半分にしか形がない記号
 RUBY_RE = re.compile(r"\{([^|{}]+)\|([^|{}]+)\}")
 IMG_EXT = (".png", ".jpg", ".jpeg", ".webp")
 
@@ -288,7 +290,19 @@ def fit_size(items, kind, weight, sizes, sp):
     texts = [s for k, s in items if k == kind]
     for size in sizes:
         fnt, rfnt = font(weight, size), font("bold", round(size * 0.5))
-        if all(len(wrap(s, fnt, rfnt, RIGHT - LEFT, sp)) == len(str(s).split("\n")) for s in texts):
+        ok = True
+        for s in texts:
+            lines = wrap(s, fnt, rfnt, RIGHT - LEFT, sp)
+            if len(lines) != len(str(s).split("\n")):
+                ok = False
+                break
+            for ln in lines:                 # 行末にぶら下がった句読点も、見える部分が右の範囲を出ないようにする
+                w = sum(tok_w(t, fnt, rfnt, sp) for t in ln)
+                if ln and ln[-1][0] == "c" and ln[-1][1] in HANG_END:
+                    w -= fnt.size * 0.5
+                if w > RIGHT - LEFT:
+                    ok = False
+        if ok:
             return size
     return sizes[-1]
 

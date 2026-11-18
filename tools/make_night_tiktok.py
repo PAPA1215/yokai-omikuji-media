@@ -162,7 +162,7 @@ def build_nitaku(n, s):
               read_time(side["line"], base=2.8, lo=3.6), bg_path=art(side.get("file"), ("_4", "_2", "")),
               title_img=art(side.get("file"), ("_title",)), top_text=key)
     n.add([("big", f"{a['name']}か、\n{b['name']}か。"), ("gap", 30),
-           ("body", "あなたなら、どちらを選びますか。\nコメントで教えてください。")], 3.8)
+           ("body", "あなたなら、\nどちらを選びますか。\nコメントで教えてください。")], 3.8)
 
 
 def build_story(n, s, note, hide=False):
@@ -267,11 +267,12 @@ def shugo_list_overlay(s, rows, label):
     label は見出しの横に出す「1〜6月」「7〜12月」など。"""
     top = mt.HEADER_Y
     list_top = top + 76
-    row_h = (mt.TEXT_BOTTOM - list_top) // len(rows)       # 6行なら180、4行なら270
+    row_h = (mt.TEXT_BOTTOM - list_top) // len(rows)       # 6行なら160、4行なら240
     big = len(rows) <= 4
-    m_size, n_size = (66, 54) if big else (50, 42)
-    sizes, wrap_size = ((60, 58, 56), 58) if big else ((48, 46, 44, 42), 46)
-    gap_a, gap_b = (26, 16) if big else (22, 14)           # 名前と一言のあいだ、一言の行のあいだ
+    # 字の大きさは、2行の一言でも絵の高さに収まるように決めてある(文字の下端を上げた 2026-11-19 に少し小さくした)
+    m_size, n_size = (60, 50) if big else (44, 38)
+    sizes, wrap_size = ((56, 54), 54) if big else ((42, 40), 40)
+    gap_a, gap_b = (20, 12) if big else (16, 10)           # 名前と一言のあいだ、一言の行のあいだ
     c = mt.Canvas(top)
     veil = Image.new("L", (1, H), 0)           # 一覧のうしろを暗くして、字を読みやすくする
     px = veil.load()
