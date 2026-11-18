@@ -17,10 +17,16 @@
     kotoba 木 妖怪のことば  "phrase", "kana"(任意), "meaning", "origin", "close"(任意), "file"(任意)
                             見出しは "meaning_label"(既定「意味」)、"origin_label"(既定「由来」)で変えられる
     shugo  金 週末のお告げ  "sub" (例 "11月14日・15日"), "lines": {"1": "...", ... "12": "..."}
+                            12か月を1画面に並べた短い動画(約9秒。2026-11-18 から)。見る人が止めて自分の月を探す。
+                            出だしの文は "hook"(大きい字)と "lead"(その下の一言)で変えられる。
+                            "style": "pages" で、以前の1か月ずつ見せる長い動画(約34秒)に戻せる。
     sato   土 妖怪の里だより "title", "parts": [本文を2〜4つ], "file"(任意)
     raishu 日 来週の守護妖怪 "file", "name", "kana"(任意), "range" (例 "11月16日〜22日"), "lore", "omen"
     zatsugaku 昼の雑学(毎日) "file", "title", "parts": [本文を2〜3つ], "lead"(任意), "close"(任意)
                             art/<file>_emaki.png があれば、絵巻を右から左へたどる動画になる。出力は <out>/noon.mp4
+                            題("title")は見る人への問いにし、答えを parts の最後に置く(2026-11-18 から)。
+
+昼の雑学と週末のお告げは、最初のコマから文字を出す(ほかの型は 0.3 秒かけて出る)。
 
 夜の絵: art/<file>_4.png と _5.png (朝の動画と違う画角・ポーズの夜の場面)があれば、
 3〜4場面のうち2場面に優先して使う(朝と同じ絵ばかりにならないように)。なければ本体・_2・_3 で作る。
@@ -92,6 +98,7 @@ class Night:
         self.scenes = []           # {"bg": Image, "ov": Image, "dur": 秒}
         self.pan = None            # 横長の絵巻を右から左へたどる動画にするときの絵
         self.out_name = "night"
+        self.instant = False       # True なら、最初の場面の文字を最初のコマから出す
 
     # --- 背景 ---
     def bg(self, path=None, focus=0.42, shade=None):
@@ -192,8 +199,77 @@ def build_kotoba(n, s):
         n.add([("body", s["close"])], read_time(s["close"], lo=3.4), bg_path=bgs[3])
 
 
+def shugo_thumb(row, size):
+    """守護妖怪の顔まわりを四角く切り出す(顔のアップ _2 があればそれを、なければ本体の絵を使う)。"""
+    p = art(row["file"], ("_2", ""))
+    if not p:
+        return None
+    im = Image.open(p).convert("RGB")
+    side = round(im.width * 0.72)
+    # 顔の高さは make_shugo.py の表の画像と同じ決め方("focus"。既定 0.17)
+    cy = (im.height - im.width * 222 / 480) * float(row.get("focus", 0.17)) + im.width * 111 / 480
+    x0 = (im.width - side) // 2
+    y0 = int(max(0, min(im.height - side, cy - side / 2)))
+    return im.crop((x0, y0, x0 + side, y0 + side)).resize((size, size), Image.LANCZOS)
+
+
+def shugo_list_overlay(s, rows):
+    """週末のお告げ: 12か月を1画面に並べた文字の層(小さな顔の絵・月・妖怪の名前・一言)。"""
+    top = mt.HEADER_Y
+    list_top = top + 74
+    row_h = (mt.TEXT_BOTTOM - list_top) // len(rows)
+    c = mt.Canvas(top)
+    veil = Image.new("L", (1, H), 0)           # 一覧のうしろを暗くして、小さめの字を読みやすくする
+    px = veil.load()
+    for y in range(H):
+        a = 0.6 * (1 - y / 520) if y < 520 else 0.0
+        a = max(a, min(0.84, 0.84 * (y - (top - 110)) / 90)) if y > top - 110 else a
+        px[0, y] = int(255 * a)
+    layer = Image.new("RGBA", (W, H), (4, 10, 16, 255))
+    layer.putalpha(veil.resize((W, H)))
+    c.img = layer
+
+    def put(x, y, text, fnt, fill, sp):        # y は字の上端
+        return c.put((x, y - fnt.getbbox("国")[1]), text, fnt, fill, spacing=sp)
+
+    x = put(mt.LEFT, top, "週末のお告げ", mt.font("bold", 42), mt.GOLD, 8)
+    put(x + 20, top + 6, s["sub"], mt.font("semi", 34), mt.PAPER, 2)
+    th = row_h - 12
+    tx = mt.LEFT + th + 22
+    f_m, f_n = mt.font("black", 34), mt.font("bold", 32)
+    name_x = tx + sum(f_m.getlength(ch) + 2 for ch in "12月") + 16
+    for i, r in enumerate(rows):
+        y = list_top + i * row_h
+        pic = shugo_thumb(r, th - 4)
+        if pic is not None:
+            frame = Image.new("RGBA", (th, th), (96, 116, 124, 255))
+            frame.paste(pic, (2, 2))
+            c.paste(frame, (mt.LEFT, y + 6))
+        put(tx, y + 8, f"{r['month']}月", f_m, mt.GOLD, 2)
+        put(name_x, y + 9, r["name"], f_n, mt.PAPER, 3)
+        line = mt.RUBY_RE.sub(lambda m: m.group(1), str(s["lines"][str(r["month"])])).replace("\n", "")
+        size = 40
+        f_l = mt.font("semi", size)
+        while sum(f_l.getlength(ch) + 1 for ch in line) > mt.RIGHT - tx and size > 28:
+            size -= 2
+            f_l = mt.font("semi", size)
+        put(tx, y + 47 + (40 - size) // 2, line, f_l, mt.PAPER, 1)
+    return c.done()
+
+
 def build_shugo(n, s):
     rows = json.load(open(SHUGO, encoding="utf-8"))
+    if s.get("style") == "pages":
+        return build_shugo_pages(n, s, rows)
+    # 12か月を1画面に並べる短い型。見る人が止めて、自分の月を探す
+    n.instant = True
+    n.add([("big", s.get("hook", "あなたの誕生月は、\nどこですか。")), ("gap", 30),
+           ("body", s.get("lead", "止めて、自分の月を\n探してください。"))], 1.8)
+    n.scenes.append({"bg": n.bg(), "ov": shugo_list_overlay(s, rows), "dur": 7.4})
+
+
+def build_shugo_pages(n, s, rows):
+    """以前の型: 1か月ずつ、絵と一言を見せる(約34秒)。"""
     n.add([("big", "この週末の\nお告げ"), ("gap", 30), ("body", f"{s['sub']}\n誕生月の守護妖怪から、ひとこと。")], 3.2)
     for r in rows:
         line = s["lines"][str(r["month"])]
@@ -216,6 +292,7 @@ def build_zatsugaku(n, s):
     """昼の雑学: 絵巻風の絵(_emaki)があれば、右から左へゆっくりたどる。なければ縦の絵で作る。"""
     f = s.get("file")
     n.out_name = "noon"
+    n.instant = True               # 題(見る人への問い)を最初のコマから出す
     n.pan = art(f, ("_emaki",))
     pics = [p for p in (art(f, ("_3", "")), art(f, ("_2", "")), art(f)) if p] or [None]
     n.add([("big", s["title"]), ("gap", 30), ("body", s.get("lead", "今日の守護妖怪の、豆知識です。"))], 3.4,
@@ -246,7 +323,7 @@ def pan_frame(pan_img, t, total):
     return pan_img.crop((x, 0, x + W, H))
 
 
-def make_video(scenes, paths, out_path, seed, pan=None):
+def make_video(scenes, paths, out_path, seed, pan=None, instant=False):
     total = sum(s["dur"] for s in scenes)
     xf, fade = 0.45, 0.3
     cmd = ["ffmpeg", "-y", "-loglevel", "error"]
@@ -287,7 +364,9 @@ def make_video(scenes, paths, out_path, seed, pan=None):
     for j, s in enumerate(scenes):
         a, b = starts[j] + (0.12 if j else 0), starts[j] + s["dur"]
         cmd += ["-loop", "1", "-framerate", str(FPS), "-t", f"{total}", "-i", paths[j][1]]
-        fx = f"[{idx}:v]format=rgba,fade=t=in:st={a:.2f}:d={fade}:alpha=1"
+        fx = f"[{idx}:v]format=rgba"
+        if j or not instant:       # instant のときは、最初の場面の文字を最初のコマから出す
+            fx += f",fade=t=in:st={a:.2f}:d={fade}:alpha=1"
         if j < len(scenes) - 1:
             fx += f",fade=t=out:st={b - fade + 0.1:.2f}:d={fade}:alpha=1"
         f.append(fx + f"[o{j}]")
@@ -347,7 +426,7 @@ def main():
     try:
         if spec.get("video", True):
             seed = sum(ord(ch) for ch in json.dumps(spec, ensure_ascii=False)) % 100000
-            total = make_video(n.scenes, paths, video, seed, pan=pan_path)
+            total = make_video(n.scenes, paths, video, seed, pan=pan_path, instant=n.instant)
     finally:
         for p in [x for pair in paths for x in pair] + ([pan_path] if pan_path else []):
             if os.path.exists(p):
