@@ -17,9 +17,10 @@
     kotoba 木 妖怪のことば  "phrase", "kana"(任意), "meaning", "origin", "close"(任意), "file"(任意)
                             見出しは "meaning_label"(既定「意味」)、"origin_label"(既定「由来」)で変えられる
     shugo  金 週末のお告げ  "sub" (例 "11月14日・15日"), "lines": {"1": "...", ... "12": "..."}
-                            1〜6月と7〜12月の2画面に分けた短い動画(約10秒。2026-11-18 から)。
-                            1画面に6か月ぶん、顔の絵・月・妖怪の名前・一言を大きく並べる。見る人が止めて自分の月を探す。
-                            一言は全角14字までなら1行、それより長いと読点のところで2行になる。
+                            1〜4月・5〜8月・9〜12月の3画面に分けた短い動画(約12秒。2026-11-18 から)。
+                            1画面に4か月ぶん、顔の絵・月・妖怪の名前・一言を大きく並べる。見る人が止めて自分の月を探す。
+                            一言は全角9字までなら1行、それより長いと読点や助詞のところで2行になる。
+                            "screens": 2 で、1〜6月・7〜12月の2画面(約10秒。絵と字は少し小さい)にできる。
                             出だしの文は "hook"(大きい字)と "lead"(その下の一言)で変えられる。
                             "style": "pages" で、以前の1か月ずつ見せる長い動画(約34秒)に戻せる。
     sato   土 妖怪の里だより "title", "parts": [本文を2〜4つ], "file"(任意)
@@ -215,35 +216,62 @@ def shugo_thumb(row, size):
     return im.crop((x0, y0, x0 + side, y0 + side)).resize((size, size), Image.LANCZOS)
 
 
-def shugo_line(line, avail):
-    """一言を大きい字で1行に収める。収まらなければ、読点(なければ真ん中あたり)で2行に分ける。
+def shugo_line(line, avail, sizes, wrap_size):
+    """一言を大きい字で1行に収める。収まらなければ、読点(なければ助詞や言葉の切れ目)で2行に分ける。
     戻り値は (行のリスト, フォント)。"""
     def width(t, f):
         return sum(f.getlength(ch) + 1 for ch in t)
-    for size in (48, 46, 44, 42):
+    for size in sizes:
         f = mt.font("semi", size)
         if width(line, f) <= avail:
             return [line], f
-    cuts = [i + 1 for i, ch in enumerate(line[:-1]) if ch == "、"]
-    if not cuts:
-        cuts = [i for i in range(2, len(line) - 1)
-                if line[i] not in mt.NO_LINE_START and line[i - 1] not in mt.NO_LINE_END]
-    cut = min(cuts, key=lambda i: max(i, len(line) - i)) if cuts else max(1, len(line) // 2)
-    parts = [line[:cut], line[cut:]]
-    size = 46
-    f = mt.font("semi", size)
-    while max(width(t, f) for t in parts) > avail and size > 30:
-        size -= 2
+
+    def word_start(ch):                        # 漢字かカタカナ = 言葉の頭になりやすい字
+        return "\u4e00" <= ch <= "\u9fff" or "\u30a1" <= ch <= "\u30fa"
+
+    def fit(cuts, size):                       # その字の大きさで2行とも収まる、いちばん偏りの少ない切れ目
         f = mt.font("semi", size)
-    return parts, f
+        ok = [i for i in cuts if max(width(line[:i], f), width(line[i:], f)) <= avail]
+        return (min(ok, key=lambda i: max(i, len(line) - i)), f) if ok else None
+
+    inner = [i for i in range(2, len(line) - 1) if line[i] not in mt.NO_LINE_START]
+    comma = [i for i in range(1, len(line)) if line[i - 1] == "、"]
+    groups = [                                 # 切れ目の候補。上のものほど自然
+        [i for i in inner if line[i - 1] in "をへ" or line[i - 2:i] in ("から", "まで", "より")
+         or (line[i - 1] in "にではが" and word_start(line[i]))],
+        [i for i in inner if "\u3041" <= line[i - 1] <= "\u3096" and word_start(line[i])],
+        [i for i in inner if line[i - 1] in "をにでへはがとも"],
+        comma,
+    ]
+    found = None
+    even = [i for i in comma if min(i, len(line) - i) >= 3]   # 「朝、」のように片方が短すぎる読点は後回し
+    for size in range(wrap_size, wrap_size - 9, -2):       # 読点があれば、少し字を小さくしてでも読点で分ける
+        found = found or fit(even, size)
+    for size in range(wrap_size, 28, -2):
+        for g in groups:
+            found = found or fit(g, size)
+    if not found:                              # どの候補でも収まらないときは、真ん中あたりで分けて字を小さくする
+        cuts = [i for i in inner if line[i - 1] not in mt.NO_LINE_END] or [max(1, len(line) // 2)]
+        cut = min(cuts, key=lambda i: max(i, len(line) - i))
+        size = wrap_size
+        while size > 30 and max(width(line[:cut], mt.font("semi", size)), width(line[cut:], mt.font("semi", size))) > avail:
+            size -= 2
+        found = (cut, mt.font("semi", size))
+    cut, f = found
+    return [line[:cut], line[cut:]], f
 
 
 def shugo_list_overlay(s, rows, label):
-    """週末のお告げ: 6か月ぶんを1画面に並べた文字の層(顔の絵・月・妖怪の名前・一言)。
-    label は見出しの横に出す「1〜6月」「7〜12月」。"""
+    """週末のお告げ: 何か月ぶんかを1画面に並べた文字の層(顔の絵・月・妖怪の名前・一言)。
+    1画面6か月(2画面の型)と、1画面4か月(3画面の型。絵も字もさらに大きい)に対応。
+    label は見出しの横に出す「1〜6月」「7〜12月」など。"""
     top = mt.HEADER_Y
     list_top = top + 76
-    row_h = (mt.TEXT_BOTTOM - list_top) // len(rows)       # 6行なら180
+    row_h = (mt.TEXT_BOTTOM - list_top) // len(rows)       # 6行なら180、4行なら270
+    big = len(rows) <= 4
+    m_size, n_size = (66, 54) if big else (50, 42)
+    sizes, wrap_size = ((60, 58, 56), 58) if big else ((48, 46, 44, 42), 46)
+    gap_a, gap_b = (26, 16) if big else (22, 14)           # 名前と一言のあいだ、一言の行のあいだ
     c = mt.Canvas(top)
     veil = Image.new("L", (1, H), 0)           # 一覧のうしろを暗くして、字を読みやすくする
     px = veil.load()
@@ -262,10 +290,10 @@ def shugo_list_overlay(s, rows, label):
     put(x + 24, top, label, mt.font("black", 42), mt.PAPER, 2)
     f_s = mt.font("semi", 32)                  # 週末の日付は右端に
     put(mt.RIGHT - sum(f_s.getlength(ch) + 2 for ch in s["sub"]), top + 8, s["sub"], f_s, mt.PAPER, 2)
-    th = row_h - 16
-    tx = mt.LEFT + th + 26
+    th = row_h - (24 if big else 16)
+    tx = mt.LEFT + th + (30 if big else 26)
     avail = mt.RIGHT - tx
-    f_m, f_n = mt.font("black", 50), mt.font("bold", 42)
+    f_m, f_n = mt.font("black", m_size), mt.font("bold", n_size)
     name_x = tx + sum(f_m.getlength(ch) + 2 for ch in "12月") + 18
     for i, r in enumerate(rows):
         y = list_top + i * row_h
@@ -275,15 +303,15 @@ def shugo_list_overlay(s, rows, label):
             frame.paste(pic, (2, 2))
             c.paste(frame, (mt.LEFT, y + 8))
         line = mt.RUBY_RE.sub(lambda m: m.group(1), str(s["lines"][str(r["month"])])).replace("\n", "")
-        parts, f_l = shugo_line(line, avail)
-        block = 50 + 22 + len(parts) * f_l.size + (len(parts) - 1) * 14
+        parts, f_l = shugo_line(line, avail, sizes, wrap_size)
+        block = m_size + gap_a + len(parts) * f_l.size + (len(parts) - 1) * gap_b
         by = y + 8 + (th - block) // 2             # 文字のかたまりを、絵の高さの真ん中に置く
         put(tx, by, f"{r['month']}月", f_m, mt.GOLD, 2)
-        put(name_x, by + 7, r["name"], f_n, mt.PAPER, 3)
-        ly = by + 50 + 22
+        put(name_x, by + round((m_size - n_size) * 0.85), r["name"], f_n, mt.PAPER, 3)
+        ly = by + m_size + gap_a
         for t in parts:
             put(tx, ly, t, f_l, mt.PAPER, 1)
-            ly += f_l.size + 14
+            ly += f_l.size + gap_b
     return c.done()
 
 
@@ -291,14 +319,17 @@ def build_shugo(n, s):
     rows = json.load(open(SHUGO, encoding="utf-8"))
     if s.get("style") == "pages":
         return build_shugo_pages(n, s, rows)
-    # 1〜6月と7〜12月の2画面に分けた短い型。見る人が止めて、自分の月を探す
+    # 何画面かに分けた短い型(既定は 1〜4月・5〜8月・9〜12月 の3画面)。見る人が止めて、自分の月を探す
     n.instant = True
     n.add([("big", s.get("hook", "あなたの誕生月は、\nどこですか。")), ("gap", 30),
            ("body", s.get("lead", "止めて、自分の月を\n探してください。"))], 1.8)
-    half = (len(rows) + 1) // 2
-    for part in (rows[:half], rows[half:]):
+    screens = 2 if s.get("screens") == 2 else 3
+    per = -(-len(rows) // screens)
+    for i in range(0, len(rows), per):
+        part = rows[i:i + per]
         label = f"{part[0]['month']}〜{part[-1]['month']}月"
-        n.scenes.append({"bg": n.bg(), "ov": shugo_list_overlay(s, part, label), "dur": 4.2})
+        n.scenes.append({"bg": n.bg(), "ov": shugo_list_overlay(s, part, label),
+                         "dur": 4.2 if screens == 2 else 3.4})
 
 
 def build_shugo_pages(n, s, rows):
