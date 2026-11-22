@@ -471,14 +471,17 @@ def main():
         sys.exit(f"spec に {e} がありません。")
     paths, pan_path, pan_img = [], None, None
     total_dur = sum(s["dur"] for s in n.scenes)
+    # 途中のファイルの名前は、昼(noon)と夜(night)で分ける。2026-11-22 に、昼と夜の動画を同時に作ったとき、
+    # 同じ名前の途中のファイルが上書きされて、昼の動画に夜の文字が入った。
+    tmp = f"_{n.out_name}_"
     if n.pan:                      # 絵巻を縦の画面の高さに合わせて広げておく
         src = Image.open(n.pan).convert("RGB")
         pan_img = src.resize((max(W + 2, round(src.width * H / src.height)), H), Image.LANCZOS)
-        pan_path = os.path.join(out, "_npan.jpg")
+        pan_path = os.path.join(out, tmp + "pan.jpg")
         pan_img.save(pan_path, quality=95)
     t = 0.0
     for i, s in enumerate(n.scenes, start=1):
-        bp, op = os.path.join(out, f"_nbg{i:02d}.jpg"), os.path.join(out, f"_nov{i:02d}.png")
+        bp, op = os.path.join(out, f"{tmp}bg{i:02d}.jpg"), os.path.join(out, f"{tmp}ov{i:02d}.png")
         bg = pan_frame(pan_img, t + s["dur"] / 2, total_dur) if pan_img else s["bg"]
         t += s["dur"]
         bg.save(bp, quality=95)
