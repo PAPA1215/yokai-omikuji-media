@@ -1,0 +1,8 @@
+{
+ "type": "nitaku",
+ "out": "out/2026-11-24",
+ "date_label": "11月24日（火）",
+ "question": "雨の帰り道、\nどっちと歩く。",
+ "a": {"file": "chochinobake", "name": "提灯お化け", "line": "長い舌を出した、\n足もとを照らす古い提灯。"},
+ "b": {"file": "karakasa", "name": "唐傘お化け", "line": "一本足で跳ねてくる、\n雨をしのぐ古い傘。"}
+}
